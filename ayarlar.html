@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dış Birim Mesai Takip Sistemi - Ayarlar</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        body { background-color: #f4f6f9; display: flex; flex-direction: column; min-height: 100vh; }
+        .navbar-brand { font-weight: 600; min-width: 0; max-width: 50vw; line-height: 1.2; font-size: clamp(0.95rem, 2.4vw, 1.25rem); overflow-wrap: break-word; word-break: break-word; }
+        @media (max-width: 991.98px) { .navbar-brand { max-width: 68vw; font-size: clamp(0.9rem, 3vw, 1.1rem); } }
+        .content-wrapper { padding-top: 20px; padding-bottom: 40px; flex: 1; }
+    </style>
+</head>
+<body>
+
+    <script src="assets/js/db.js"></script>
+    <script src="assets/js/app.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!DB.isAdmin()) {
+                document.getElementById('main-content').innerHTML = '<div class="alert alert-danger">Bu sayfaya erişim yetkiniz yoktur.</div>';
+                return;
+            }
+
+            const html = `
+            <div class="row">
+                <div class="col-12">
+                    <div id="mesaj-alani"></div>
+
+                    <!-- Sistem Ayarları -->
+                    <div class="card mb-4 shadow-sm border-0 border-top border-primary border-3">
+                        <div class="card-header bg-white py-3">
+                            <h5 class="mb-0 fw-bold text-primary"><i class="fa-solid fa-cogs me-2"></i> Sistem Ayarları</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="formAyarlar">
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold">Site Başlığı</label>
+                                    <input type="text" class="form-control" id="ayar_site_baslik" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold">İzin Göstergesi (Anasayfa & Mesai Listesi)</label>
+                                    <select class="form-select" id="ayar_izin_gosterge_goster">
+                                        <option value="1">Göster</option>
+                                        <option value="0">Gizle</option>
+                                    </select>
+                                </div>
+                                <div class="text-end">
+                                    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-save"></i> Ayarları Kaydet</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Resmi Tatiller -->
+                    <div class="card shadow-sm border-0 border-top border-danger border-3">
+                        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0 fw-bold text-danger"><i class="fa-solid fa-star me-2"></i> Resmi Tatiller</h5>
+                            <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#tatilEkleModal">
+                                <i class="fa-solid fa-plus"></i> Yeni Tatil Ekle
+                            </button>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Tarih (Ay-Gün)</th>
+                                            <th>Tatil Adı</th>
+                                            <th class="text-end pe-4">İşlem</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tatiller-table-body">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TATİL EKLE MODAL -->
+            <div class="modal fade" id="tatilEkleModal" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <form id="formAddTatil">
+                      <div class="modal-header bg-light">
+                        <h5 class="modal-title"><i class="fa-solid fa-calendar-plus text-danger"></i> Yeni Resmi Tatil Ekle</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Tarih (Ay-Gün)</label>
+                            <input type="text" class="form-control" id="tatil_gun_ay" placeholder="Örn: 04-23 veya 10-29" required pattern="^(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$">
+                            <div class="form-text">Lütfen MM-DD (Ay-Gün) formatında giriniz (Örn: 23 Nisan için 04-23).</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Tatil Adı</label>
+                            <input type="text" class="form-control" id="tatil_aciklama" required>
+                        </div>
+                      </div>
+                      <div class="modal-footer border-0">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+                        <button type="submit" class="btn btn-danger">Kaydet</button>
+                      </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+            `;
+            
+            document.getElementById('main-content').insertAdjacentHTML('beforeend', html);
+            
+            // Ayarları yükle
+            document.getElementById('ayar_site_baslik').value = DB.getAyar('site_baslik') || 'Dış Birim Mesai Takip Sistemi';
+            document.getElementById('ayar_izin_gosterge_goster').value = DB.getAyar('izin_gosterge_goster') || '1';
+            
+            renderTatiller();
+
+            // Ayarları kaydet
+            document.getElementById('formAyarlar').addEventListener('submit', function(e) {
+                e.preventDefault();
+                DB.setAyar('site_baslik', document.getElementById('ayar_site_baslik').value);
+                DB.setAyar('izin_gosterge_goster', document.getElementById('ayar_izin_gosterge_goster').value);
+                
+                document.getElementById('mesaj-alani').innerHTML = '<div class="alert alert-success alert-dismissible fade show">Ayarlar başarıyla kaydedildi.<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>';
+                
+                // Başlığı hemen güncelle
+                let mainTitle = document.querySelector('.navbar-brand');
+                if (mainTitle) mainTitle.innerHTML = `<i class="fa-solid fa-clock me-2"></i>${document.getElementById('ayar_site_baslik').value}`;
+            });
+
+            // Tatil Ekle
+            document.getElementById('formAddTatil').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const gun_ay = document.getElementById('tatil_gun_ay').value;
+                const aciklama = document.getElementById('tatil_aciklama').value;
+                
+                DB.addResmiTatil(gun_ay, aciklama);
+                
+                bootstrap.Modal.getInstance(document.getElementById('tatilEkleModal')).hide();
+                document.getElementById('formAddTatil').reset();
+                renderTatiller();
+            });
+        });
+
+        window.deleteTatil = function(id) {
+            if(confirm('Bu tatili silmek istediğinize emin misiniz?')) {
+                DB.deleteResmiTatil(id);
+                renderTatiller();
+            }
+        }
+
+        function renderTatiller() {
+            const tatiller = DB.getResmiTatiller();
+            const tbody = document.getElementById('tatiller-table-body');
+            
+            if (tatiller.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">Henüz resmi tatil eklenmemiş.</td></tr>';
+                return;
+            }
+
+            let html = '';
+            tatiller.forEach((t) => {
+                html += `
+                <tr>
+                    <td class="ps-3"><strong>${t.gun_ay}</strong></td>
+                    <td>${t.aciklama}</td>
+                    <td class="text-end pe-4">
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteTatil(${t.id})">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

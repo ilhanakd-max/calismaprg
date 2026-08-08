@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dış Birim Mesai Takip Sistemi - Personel Yönetimi</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        body { background-color: #f4f6f9; display: flex; flex-direction: column; min-height: 100vh; }
+        .navbar-brand { font-weight: 600; min-width: 0; max-width: 50vw; line-height: 1.2; font-size: clamp(0.95rem, 2.4vw, 1.25rem); overflow-wrap: break-word; word-break: break-word; }
+        @media (max-width: 991.98px) { .navbar-brand { max-width: 68vw; font-size: clamp(0.9rem, 3vw, 1.1rem); } }
+        .content-wrapper { padding-top: 20px; padding-bottom: 40px; flex: 1; }
+    </style>
+</head>
+<body>
+
+    <script src="assets/js/db.js"></script>
+    <script src="assets/js/app.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!DB.isAdmin()) {
+                document.getElementById('main-content').innerHTML = '<div class="alert alert-danger">Bu sayfaya erişim yetkiniz yoktur.</div>';
+                return;
+            }
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const secili_birim = parseInt(urlParams.get('birim_id')) || 0;
+
+            const html = `
+            <div class="row">
+                <div class="col-12">
+                    <div id="mesaj-alani"></div>
+
+                    <!-- Filtreleme Kartı -->
+                    <div class="card mb-4 shadow-sm border-0">
+                        <div class="card-body">
+                            <form id="filterForm" class="row g-3 align-items-center">
+                                <div class="col-md-auto">
+                                    <strong><i class="fa-solid fa-filter text-muted"></i> Filtrele:</strong>
+                                </div>
+                                <div class="col-md-4">
+                                    <select id="filter_birim_id" class="form-select" onchange="applyFilter()">
+                                        <option value="0">Tüm Birimler</option>
+                                        <!-- Seçenekler buraya gelecek -->
+                                    </select>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="card shadow-sm border-0 border-top border-primary border-3">
+                        <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                            <h5 class="mb-0 fw-bold text-primary"><i class="fa-solid fa-user-tie me-2"></i> Personel Yönetimi</h5>
+                            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#personelEkleModal">
+                                <i class="fa-solid fa-plus"></i> Yeni Personel Ekle
+                            </button>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover table-striped mb-0 text-center align-middle">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th style="width: 50px;">#</th>
+                                            <th class="text-start">Ad Soyad</th>
+                                            <th>Bağlı Olduğu Birim</th>
+                                            <th>İşlemler</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="personeller-table-body">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODALLAR -->
+            <!-- PERSONEL EKLE MODAL -->
+            <div class="modal fade" id="personelEkleModal" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <form id="formAddPersonel">
+                      <div class="modal-header bg-light">
+                        <h5 class="modal-title"><i class="fa-solid fa-user-plus text-success"></i> Yeni Personel Ekle</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="ad_soyad" class="form-label">Ad Soyad</label>
+                            <input type="text" class="form-control" id="ad_soyad" required placeholder="Örn: Ahmet Yılmaz">
+                        </div>
+                        <div class="mb-3">
+                            <label for="birim_id" class="form-label">Görev Yaptığı Birim</label>
+                            <select class="form-select modal-birim-select" id="birim_id" required>
+                                <option value="">Birim Seçiniz...</option>
+                            </select>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="izin_degistirici" value="1">
+                            <label class="form-check-label text-warning fw-bold" for="izin_degistirici"><i class="fa-solid fa-star"></i> Bu personel "İzin Değiştirici" (Joker) mi?</label>
+                        </div>
+                        <hr>
+                        <div class="small text-muted mb-2"><i class="fa-solid fa-circle-info me-1"></i> Aşağıdaki bilgiler isteğe bağlıdır.</div>
+                        <div class="mb-3">
+                            <label for="dogum_tarihi" class="form-label">Doğum Tarihi</label>
+                            <input type="date" class="form-control" id="dogum_tarihi">
+                        </div>
+                        <div class="mb-3">
+                            <label for="telefon" class="form-label">Telefon</label>
+                            <input type="tel" class="form-control" id="telefon" placeholder="Örn: 05xx xxx xx xx">
+                        </div>
+                        <div class="mb-3">
+                            <label for="email" class="form-label">E-posta</label>
+                            <input type="email" class="form-control" id="email" placeholder="ornek@mail.com">
+                        </div>
+                        <div class="mb-3">
+                            <label for="adres" class="form-label">Adres</label>
+                            <textarea class="form-control" id="adres" rows="2"></textarea>
+                        </div>
+                      </div>
+                      <div class="modal-footer border-0">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+                        <button type="submit" class="btn btn-success">Kaydet</button>
+                      </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <!-- PERSONEL DÜZENLE MODAL -->
+            <div class="modal fade" id="personelDuzenleModal" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <form id="formEditPersonel">
+                      <input type="hidden" id="edit_personel_id">
+                      <div class="modal-header bg-light">
+                        <h5 class="modal-title"><i class="fa-solid fa-user-pen text-primary"></i> Personel Düzenle</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="edit_ad_soyad" class="form-label">Ad Soyad</label>
+                            <input type="text" class="form-control" id="edit_ad_soyad" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit_birim_id" class="form-label">Görev Yaptığı Birim</label>
+                            <select class="form-select modal-birim-select" id="edit_birim_id" required>
+                                <option value="">Birim Seçiniz...</option>
+                            </select>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="edit_izin_degistirici" value="1">
+                            <label class="form-check-label text-warning fw-bold" for="edit_izin_degistirici"><i class="fa-solid fa-star"></i> Bu personel "İzin Değiştirici" mi?</label>
+                        </div>
+                        <hr>
+                        <div class="mb-3">
+                            <label for="edit_dogum_tarihi" class="form-label">Doğum Tarihi</label>
+                            <input type="date" class="form-control" id="edit_dogum_tarihi">
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit_telefon" class="form-label">Telefon</label>
+                            <input type="tel" class="form-control" id="edit_telefon">
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit_email" class="form-label">E-posta</label>
+                            <input type="email" class="form-control" id="edit_email">
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit_adres" class="form-label">Adres</label>
+                            <textarea class="form-control" id="edit_adres" rows="2"></textarea>
+                        </div>
+                      </div>
+                      <div class="modal-footer border-0">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                        <button type="submit" class="btn btn-primary">Güncelle</button>
+                      </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <!-- PERSONEL SİL/ARŞİVLE MODAL -->
+            <div class="modal fade" id="personelSilModal" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title"><i class="fa-solid fa-user-minus"></i> Personel Silme Seçenekleri</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                  </div>
+                  <div class="modal-body">
+                    <h5 id="delete_personel_ad" class="text-center fw-bold text-danger mb-4"></h5>
+                    
+                    <div class="card border-warning mb-3 shadow-sm">
+                        <div class="card-body">
+                            <form id="formArchivePersonel">
+                                <input type="hidden" id="archive_personel_id">
+                                <h6 class="card-title fw-bold text-warning mb-3"><i class="fa-solid fa-box-archive"></i> Arşivle - <span class="badge bg-success">Önerilen</span></h6>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-warning">Çıkış Tarihi</span>
+                                    <input type="date" class="form-control border-warning" id="cikis_tarihi" required>
+                                    <button type="submit" class="btn btn-warning text-dark"><i class="fa-solid fa-check"></i> Onayla</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="card border-danger shadow-sm">
+                        <div class="card-body">
+                            <form id="formHardDeletePersonel">
+                                <input type="hidden" id="hard_delete_personel_id">
+                                <h6 class="card-title fw-bold text-danger"><i class="fa-solid fa-trash-can"></i> Tamamen Sil</h6>
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm"><i class="fa-solid fa-triangle-exclamation"></i> Kalıcı Olarak Sil</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            `;
+            
+            document.getElementById('main-content').insertAdjacentHTML('beforeend', html);
+            document.getElementById('cikis_tarihi').value = new Date().toISOString().split('T')[0];
+            
+            populateBirimSelects();
+            document.getElementById('filter_birim_id').value = secili_birim;
+            renderTable(secili_birim);
+
+            // Events
+            document.getElementById('formAddPersonel').addEventListener('submit', function(e) {
+                e.preventDefault();
+                DB.addPersonel({
+                    ad_soyad: document.getElementById('ad_soyad').value,
+                    birim_id: document.getElementById('birim_id').value,
+                    izin_degistirici: document.getElementById('izin_degistirici').checked ? 1 : 0,
+                    dogum_tarihi: document.getElementById('dogum_tarihi').value || null,
+                    telefon: document.getElementById('telefon').value || null,
+                    email: document.getElementById('email').value || null,
+                    adres: document.getElementById('adres').value || null,
+                    olusturulma_tarihi: new Date().toISOString()
+                });
+                bootstrap.Modal.getInstance(document.getElementById('personelEkleModal')).hide();
+                document.getElementById('formAddPersonel').reset();
+                gosterMesaj("Personel başarıyla eklendi.", "success");
+                renderTable(document.getElementById('filter_birim_id').value);
+            });
+
+            document.getElementById('formEditPersonel').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const id = document.getElementById('edit_personel_id').value;
+                DB.updatePersonel(id, {
+                    ad_soyad: document.getElementById('edit_ad_soyad').value,
+                    birim_id: document.getElementById('edit_birim_id').value,
+                    izin_degistirici: document.getElementById('edit_izin_degistirici').checked ? 1 : 0,
+                    dogum_tarihi: document.getElementById('edit_dogum_tarihi').value || null,
+                    telefon: document.getElementById('edit_telefon').value || null,
+                    email: document.getElementById('edit_email').value || null,
+                    adres: document.getElementById('edit_adres').value || null
+                });
+                bootstrap.Modal.getInstance(document.getElementById('personelDuzenleModal')).hide();
+                gosterMesaj("Personel başarıyla güncellendi.", "success");
+                renderTable(document.getElementById('filter_birim_id').value);
+            });
+
+            document.getElementById('formArchivePersonel').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const id = document.getElementById('archive_personel_id').value;
+                const tarih = document.getElementById('cikis_tarihi').value;
+                DB.updatePersonel(id, { cikis_tarihi: tarih });
+                // Bu tarihten sonraki mesaileri temizle
+                let mesailer = DB.getDB().mesailer;
+                mesailer = mesailer.filter(m => !(m.personel_id == id && m.tarih > tarih));
+                let dbData = DB.getDB();
+                dbData.mesailer = mesailer;
+                saveDB(dbData);
+
+                bootstrap.Modal.getInstance(document.getElementById('personelSilModal')).hide();
+                gosterMesaj("Personel arşivlendi.", "success");
+                renderTable(document.getElementById('filter_birim_id').value);
+            });
+
+            document.getElementById('formHardDeletePersonel').addEventListener('submit', function(e) {
+                e.preventDefault();
+                if (confirm('DİKKAT: Geçmişteki tüm mesai raporları bozulabilir. Kalıcı olarak silmek istediğinize emin misiniz?')) {
+                    const id = document.getElementById('hard_delete_personel_id').value;
+                    DB.deletePersonel(id);
+                    bootstrap.Modal.getInstance(document.getElementById('personelSilModal')).hide();
+                    gosterMesaj("Personel kalıcı olarak silindi.", "success");
+                    renderTable(document.getElementById('filter_birim_id').value);
+                }
+            });
+        });
+
+        window.applyFilter = function() {
+            const birim_id = document.getElementById('filter_birim_id').value;
+            const newUrl = window.location.pathname + (birim_id > 0 ? '?birim_id=' + birim_id : '');
+            window.history.pushState({path:newUrl}, '', newUrl);
+            renderTable(birim_id);
+        }
+
+        function populateBirimSelects() {
+            const birimler = DB.getBirimler();
+            let options = '';
+            birimler.forEach(b => {
+                options += `<option value="${b.id}">${b.birim_adi}</option>`;
+            });
+            document.getElementById('filter_birim_id').innerHTML += options;
+            document.querySelectorAll('.modal-birim-select').forEach(select => {
+                select.innerHTML += options;
+            });
+        }
+
+        window.editPersonelAction = function(btn) {
+            document.getElementById('edit_personel_id').value = btn.dataset.personelId;
+            document.getElementById('edit_ad_soyad').value = btn.dataset.ad;
+            document.getElementById('edit_birim_id').value = btn.dataset.birim;
+            document.getElementById('edit_izin_degistirici').checked = (btn.dataset.joker == '1');
+            document.getElementById('edit_dogum_tarihi').value = btn.dataset.dogum || '';
+            document.getElementById('edit_telefon').value = btn.dataset.telefon || '';
+            document.getElementById('edit_email').value = btn.dataset.email || '';
+            document.getElementById('edit_adres').value = btn.dataset.adres || '';
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('personelDuzenleModal')).show();
+        }
+
+        window.deletePersonelModalAction = function(id, ad) {
+            document.getElementById('delete_personel_ad').innerText = ad;
+            document.getElementById('archive_personel_id').value = id;
+            document.getElementById('hard_delete_personel_id').value = id;
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('personelSilModal')).show();
+        }
+
+        window.reactivatePersonel = function(id) {
+            if(confirm('Bu personeli tekrar aktif hale getirmek istediğinize emin misiniz?')) {
+                DB.updatePersonel(id, { cikis_tarihi: null });
+                gosterMesaj("Personel tekrar aktif hale getirildi.", "success");
+                renderTable(document.getElementById('filter_birim_id').value);
+            }
+        }
+
+        function renderTable(secili_birim = 0) {
+            let personeller = DB.getPersoneller();
+            if (secili_birim > 0) {
+                personeller = personeller.filter(p => p.birim_id == secili_birim);
+            }
+
+            personeller.sort((a, b) => {
+                if(a.cikis_tarihi && !b.cikis_tarihi) return 1;
+                if(!a.cikis_tarihi && b.cikis_tarihi) return -1;
+                return a.ad_soyad.localeCompare(b.ad_soyad);
+            });
+
+            const tbody = document.getElementById('personeller-table-body');
+            if (personeller.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-muted py-4">Kayıtlı personel bulunamadı.</td></tr>';
+                return;
+            }
+
+            let html = '';
+            personeller.forEach((p, index) => {
+                let birim = DB.getBirim(p.birim_id);
+                let birimAdi = birim ? birim.birim_adi : 'Atanmadı';
+                
+                let adSoyadHtml = p.cikis_tarihi ? `<del class="text-muted">${p.ad_soyad}</del> <span class="badge bg-danger ms-2">Pasif (${new Date(p.cikis_tarihi).toLocaleDateString('tr-TR')})</span>` : p.ad_soyad;
+                if (p.izin_degistirici == 1) adSoyadHtml += ` <span class="badge bg-warning text-dark ms-2"><i class="fa-solid fa-star"></i> Joker</span>`;
+
+                let infoHtml = '';
+                if(p.telefon || p.email || p.dogum_tarihi) {
+                    infoHtml += '<div class="small text-muted fw-normal mt-1">';
+                    if(p.telefon) infoHtml += `<span class="me-2"><i class="fa-solid fa-phone me-1"></i>${p.telefon}</span>`;
+                    if(p.email) infoHtml += `<span class="me-2"><i class="fa-solid fa-envelope me-1"></i>${p.email}</span>`;
+                    if(p.dogum_tarihi) infoHtml += `<span><i class="fa-solid fa-cake-candles me-1"></i>${new Date(p.dogum_tarihi).toLocaleDateString('tr-TR')}</span>`;
+                    infoHtml += '</div>';
+                }
+
+                let actionsHtml = '';
+                if(p.cikis_tarihi) {
+                    actionsHtml += `<button type="button" class="btn btn-sm btn-outline-success me-1" title="Aktifleştir" onclick="reactivatePersonel(${p.id})"><i class="fa-solid fa-rotate-left"></i> Aktifleştir</button>`;
+                }
+                actionsHtml += `
+                    <button type="button" class="btn btn-sm btn-outline-primary me-1"
+                            data-personel-id="${p.id}"
+                            data-ad="${p.ad_soyad}"
+                            data-birim="${p.birim_id}"
+                            data-joker="${p.izin_degistirici || 0}"
+                            data-dogum="${p.dogum_tarihi || ''}"
+                            data-telefon="${p.telefon || ''}"
+                            data-email="${p.email || ''}"
+                            data-adres="${p.adres || ''}"
+                            onclick="editPersonelAction(this)" title="Düzenle">
+                        <i class="fa-solid fa-pen"></i> Düzenle
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" title="Sil" 
+                            onclick="deletePersonelModalAction(${p.id}, '${p.ad_soyad}')">
+                        <i class="fa-solid fa-trash"></i> Sil
+                    </button>
+                `;
+
+                html += `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td class="text-start fw-bold"><i class="fa-regular fa-user text-muted me-2"></i> ${adSoyadHtml} ${infoHtml}</td>
+                    <td><span class="badge bg-info text-dark rounded-pill"><i class="fa-solid fa-building me-1"></i> ${birimAdi}</span></td>
+                    <td>${actionsHtml}</td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+        }
+
+        function gosterMesaj(mesaj, tur) {
+            document.getElementById('mesaj-alani').innerHTML = `
+            <div class="alert alert-${tur} alert-dismissible fade show" role="alert">
+                ${mesaj}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>`;
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

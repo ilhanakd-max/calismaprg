@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dış Birim Mesai Takip Sistemi - Raporlar</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        body { background-color: #f4f6f9; display: flex; flex-direction: column; min-height: 100vh; }
+        .navbar-brand { font-weight: 600; min-width: 0; max-width: 50vw; line-height: 1.2; font-size: clamp(0.95rem, 2.4vw, 1.25rem); overflow-wrap: break-word; word-break: break-word; }
+        @media (max-width: 991.98px) { .navbar-brand { max-width: 68vw; font-size: clamp(0.9rem, 3vw, 1.1rem); } }
+        .content-wrapper { padding-top: 20px; padding-bottom: 40px; flex: 1; }
+    </style>
+</head>
+<body>
+
+    <script src="assets/js/db.js"></script>
+    <script src="assets/js/app.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!DB.isAdmin()) {
+                document.getElementById('main-content').innerHTML = '<div class="alert alert-danger">Bu sayfaya erişim yetkiniz yoktur.</div>';
+                return;
+            }
+
+            const today = new Date();
+            const lastWeek = new Date(today);
+            lastWeek.setDate(today.getDate() - 7);
+            
+            const defaultStart = lastWeek.toISOString().split('T')[0];
+            const defaultEnd = today.toISOString().split('T')[0];
+
+            const html = `
+            <div class="row">
+                <div class="col-12">
+                    <div id="mesaj-alani"></div>
+
+                    <!-- Filtreleme Kartı -->
+                    <div class="card mb-4 shadow-sm border-0 border-top border-primary border-3">
+                        <div class="card-body">
+                            <h5 class="card-title fw-bold text-primary mb-3"><i class="fa-solid fa-filter"></i> Rapor Filtreleri</h5>
+                            <form id="filterForm" class="row g-3" onsubmit="event.preventDefault(); applyFilter();">
+                                <div class="col-md-2">
+                                    <label class="form-label">Başlangıç Tarihi</label>
+                                    <input type="date" class="form-control" id="filter_baslangic" value="${defaultStart}">
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Bitiş Tarihi</label>
+                                    <input type="date" class="form-control" id="filter_bitis" value="${defaultEnd}">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Birim</label>
+                                    <select id="filter_birim_id" class="form-select" onchange="updatePersonelSelect(this.value)">
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Personel</label>
+                                    <select id="filter_personel_id" class="form-select">
+                                        <option value="0">Tüm Personeller</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Durum</label>
+                                    <select id="filter_durum" class="form-select">
+                                        <option value="">Tümü</option>
+                                        <option value="Çalışıyor">Çalışıyor</option>
+                                        <option value="İzinli">İzinli</option>
+                                        <option value="Raporlu">Raporlu</option>
+                                        <option value="Tatil">Tatil</option>
+                                    </select>
+                                </div>
+                                <div class="col-12 text-end">
+                                    <button type="submit" class="btn btn-primary px-4"><i class="fa-solid fa-search"></i> Raporu Getir</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Rapor Tablosu -->
+                    <div class="card shadow-sm border-0 mb-4">
+                        <div class="card-header bg-white py-3">
+                            <h5 class="mb-0 fw-bold"><i class="fa-solid fa-table"></i> Rapor Sonuçları</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-hover table-bordered table-striped w-100 align-middle text-center">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>Tarih</th>
+                                            <th class="text-start">Personel Adı Soyadı</th>
+                                            <th>Birim</th>
+                                            <th>Durum</th>
+                                            <th>Saat</th>
+                                            <th>Notlar</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="rapor-table-body">
+                                        <tr><td colspan="6" class="text-muted">Filtreleme yapın.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Personel Özet Tablosu -->
+                    <div class="card shadow-sm border-0">
+                        <div class="card-header bg-white py-3">
+                            <h5 class="mb-0 fw-bold"><i class="fa-solid fa-chart-pie"></i> Seçilen Dönem Özet Raporu</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-bordered table-striped w-100 align-middle text-center">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th class="text-start">Personel Adı Soyadı</th>
+                                            <th>Çalışma (Gün)</th>
+                                            <th>İzin (Gün)</th>
+                                            <th>Rapor (Gün)</th>
+                                            <th>Tatil (Gün)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ozet-table-body">
+                                        <tr><td colspan="5" class="text-muted">Filtreleme yapın.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            `;
+            
+            document.getElementById('main-content').insertAdjacentHTML('beforeend', html);
+            
+            const birimler = DB.getBirimler();
+            let bOptions = '<option value="0">Tüm Birimler</option>';
+            birimler.forEach(b => {
+                bOptions += `<option value="${b.id}">${b.birim_adi}</option>`;
+            });
+            document.getElementById('filter_birim_id').innerHTML = bOptions;
+            
+            window.updatePersonelSelect(0);
+            
+            // İlk yüklemede getir
+            window.applyFilter();
+        });
+
+        window.updatePersonelSelect = function(birim_id) {
+            const personeller = DB.getPersoneller(birim_id == 0 ? null : birim_id);
+            let pOptions = '<option value="0">Tüm Personeller</option>';
+            personeller.forEach(p => {
+                pOptions += `<option value="${p.id}">${p.ad_soyad}</option>`;
+            });
+            document.getElementById('filter_personel_id').innerHTML = pOptions;
+        }
+
+        window.applyFilter = function() {
+            const bId = document.getElementById('filter_birim_id').value;
+            const pId = document.getElementById('filter_personel_id').value;
+            const start = document.getElementById('filter_baslangic').value;
+            const end = document.getElementById('filter_bitis').value;
+            const durum = document.getElementById('filter_durum').value;
+
+            let mesailer = DB.getMesailer(bId, start, end);
+            
+            if (pId > 0) {
+                mesailer = mesailer.filter(m => m.personel_id == pId);
+            }
+            if (durum) {
+                mesailer = mesailer.filter(m => m.durum === durum);
+            }
+            
+            mesailer.sort((a, b) => {
+                if(a.tarih < b.tarih) return -1;
+                if(a.tarih > b.tarih) return 1;
+                return 0;
+            });
+
+            const tbody = document.getElementById('rapor-table-body');
+            const ozetbody = document.getElementById('ozet-table-body');
+
+            if (mesailer.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-muted">Kayıt bulunamadı.</td></tr>';
+                ozetbody.innerHTML = '<tr><td colspan="5" class="text-muted">Kayıt bulunamadı.</td></tr>';
+                return;
+            }
+
+            let html = '';
+            let ozet = {};
+
+            mesailer.forEach(m => {
+                const personel = DB.getPersoneller().find(p => p.id == m.personel_id);
+                const birim = DB.getBirim(m.birim_id);
+                const pName = personel ? personel.ad_soyad : 'Bilinmeyen Personel';
+                const bName = birim ? birim.birim_adi : 'Bilinmeyen Birim';
+
+                let durumBadge = '';
+                if (m.durum === 'Çalışıyor') durumBadge = '<span class="badge bg-success">Çalışıyor</span>';
+                else if (m.durum === 'İzinli') durumBadge = '<span class="badge bg-warning text-dark">İzinli</span>';
+                else if (m.durum === 'Raporlu') durumBadge = '<span class="badge bg-danger">Raporlu</span>';
+                else durumBadge = `<span class="badge bg-secondary">${m.durum}</span>`;
+
+                let saatler = '-';
+                if (m.durum === 'Çalışıyor' && m.baslangic_saati && m.bitis_saati) {
+                    saatler = `${m.baslangic_saati.substring(0,5)} - ${m.bitis_saati.substring(0,5)}`;
+                }
+
+                html += `
+                <tr>
+                    <td>${new Date(m.tarih).toLocaleDateString('tr-TR')}</td>
+                    <td class="fw-bold text-start">${pName}</td>
+                    <td>${bName}</td>
+                    <td>${durumBadge}</td>
+                    <td>${saatler}</td>
+                    <td class="small text-muted">${m.notlar || ''}</td>
+                </tr>`;
+
+                // Özet
+                if (!ozet[m.personel_id]) {
+                    ozet[m.personel_id] = { ad: pName, calisma: 0, izin: 0, rapor: 0, tatil: 0 };
+                }
+                if (m.durum === 'Çalışıyor') ozet[m.personel_id].calisma++;
+                if (m.durum === 'İzinli') ozet[m.personel_id].izin++;
+                if (m.durum === 'Raporlu') ozet[m.personel_id].rapor++;
+                if (m.durum === 'Tatil') ozet[m.personel_id].tatil++;
+            });
+
+            tbody.innerHTML = html;
+
+            let ozetHtml = '';
+            const ozetArray = Object.values(ozet).sort((a, b) => a.ad.localeCompare(b.ad));
+            ozetArray.forEach(o => {
+                ozetHtml += `
+                <tr>
+                    <td class="fw-bold text-start">${o.ad}</td>
+                    <td class="text-success fw-bold">${o.calisma}</td>
+                    <td class="text-warning text-dark fw-bold">${o.izin}</td>
+                    <td class="text-danger fw-bold">${o.rapor}</td>
+                    <td class="text-secondary fw-bold">${o.tatil}</td>
+                </tr>`;
+            });
+
+            ozetbody.innerHTML = ozetHtml;
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

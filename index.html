@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dış Birim Mesai Takip Sistemi</title>
+    <!-- PWA Meta Etiketleri -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0d6efd">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        body { background-color: #f4f6f9; display: flex; flex-direction: column; min-height: 100vh; }
+        .navbar-brand { font-weight: 600; min-width: 0; max-width: 50vw; line-height: 1.2; font-size: clamp(0.95rem, 2.4vw, 1.25rem); overflow-wrap: break-word; word-break: break-word; }
+        @media (max-width: 991.98px) { .navbar-brand { max-width: 68vw; font-size: clamp(0.9rem, 3vw, 1.1rem); } }
+        .content-wrapper { padding-top: 20px; padding-bottom: 40px; flex: 1; }
+        .card { transition: transform 0.2s; }
+        .card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+        .gorev-item .card-header { flex-wrap: nowrap; }
+        .gorev-item .card-header > div:first-child { min-width: 0; overflow: hidden; }
+        .gorev-item .card-header .text-truncate { display: inline-block; max-width: 100%; }
+    </style>
+</head>
+<body>
+
+    <script src="assets/js/db.js"></script>
+    <script src="assets/js/app.js"></script>
+
+    <!-- Ana İçerik Başlangıcı (app.js tarafından sarılacak div'in içi) -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const mainContent = document.getElementById('main-content');
+            
+            const html = `
+            <div class="row mb-4">
+                <div class="col-12">
+                    <h2 class="border-bottom pb-2">Birimler (Dashboard)</h2>
+                    <p class="text-muted">Lütfen mesai veya personel işlemlerini yapmak istediğiniz birimi seçiniz.</p>
+                </div>
+            </div>
+            
+            <div class="row" id="birimler-container">
+            </div>
+            `;
+            
+            mainContent.insertAdjacentHTML('beforeend', html);
+            renderBirimler();
+        });
+
+        function renderBirimler() {
+            const birimler = DB.getBirimler();
+            const container = document.getElementById('birimler-container');
+            
+            if (birimler.length === 0) {
+                container.innerHTML = `
+                <div class="col-12">
+                    <div class="alert alert-warning">Sistemde henüz birim kaydı bulunmamaktadır. Lütfen "Birim Yönetimi" menüsünden birim ekleyin.</div>
+                </div>`;
+                return;
+            }
+
+            let html = '';
+            birimler.forEach(b => {
+                const personel_sayisi = DB.getBirimPersonelSayisi(b.id);
+                html += `
+                <div class="col-md-6 col-lg-3 mb-4">
+                    <div class="card h-100 border-primary border-top-0 border-end-0 border-bottom-0 border-5">
+                        <div class="card-body">
+                            <h5 class="card-title text-primary"><i class="fa-solid fa-building me-2"></i> ${b.birim_adi}</h5>
+                            <p class="card-text text-muted mb-4">
+                                <i class="fa-solid fa-users"></i> Toplam Personel: <strong>${personel_sayisi}</strong>
+                            </p>
+                            <a href="mesai.html?birim_id=${b.id}" class="btn btn-outline-primary btn-sm w-100">
+                                <i class="fa-solid fa-calendar-alt"></i> Mesaileri Gör
+                            </a>
+                        </div>
+                    </div>
+                </div>`;
+            });
+            container.innerHTML = html;
+        }
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dış Birim Mesai Takip Sistemi - Birim Yönetimi</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        body { background-color: #f4f6f9; display: flex; flex-direction: column; min-height: 100vh; }
+        .navbar-brand { font-weight: 600; min-width: 0; max-width: 50vw; line-height: 1.2; font-size: clamp(0.95rem, 2.4vw, 1.25rem); overflow-wrap: break-word; word-break: break-word; }
+        @media (max-width: 991.98px) { .navbar-brand { max-width: 68vw; font-size: clamp(0.9rem, 3vw, 1.1rem); } }
+        .content-wrapper { padding-top: 20px; padding-bottom: 40px; flex: 1; }
+    </style>
+</head>
+<body>
+
+    <script src="assets/js/db.js"></script>
+    <script src="assets/js/app.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!DB.isAdmin()) {
+                document.getElementById('main-content').innerHTML = '<div class="alert alert-danger">Bu sayfaya erişim yetkiniz yoktur. (Yönetici girişi yapınız)</div>';
+                return;
+            }
+
+            const html = `
+            <div class="row">
+                <div class="col-12">
+                    <div id="mesaj-alani"></div>
+
+                    <div class="card shadow-sm border-0 border-top border-primary border-3">
+                        <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+                            <h5 class="mb-0 fw-bold text-primary"><i class="fa-solid fa-building me-2"></i> Birim Yönetimi</h5>
+                            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#birimEkleModal">
+                                <i class="fa-solid fa-plus"></i> Yeni Birim Ekle
+                            </button>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover table-striped mb-0 text-center align-middle">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th style="width: 50px;">#</th>
+                                            <th class="text-start">Birim Adı</th>
+                                            <th>Kayıtlı Personel</th>
+                                            <th>İşlemler</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="birimler-table-body">
+                                        <!-- Veriler Buraya -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- BİRİM EKLE MODAL -->
+            <div class="modal fade" id="birimEkleModal" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <form id="formAddBirim">
+                      <div class="modal-header bg-light">
+                        <h5 class="modal-title"><i class="fa-solid fa-plus-circle text-success"></i> Yeni Birim Ekle</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="birim_adi" class="form-label">Birim Adı</label>
+                            <input type="text" class="form-control" id="birim_adi" required placeholder="Örn: Çeşme Amfi">
+                        </div>
+                      </div>
+                      <div class="modal-footer border-0">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+                        <button type="submit" class="btn btn-success">Kaydet</button>
+                      </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <!-- BİRİM DÜZENLE MODAL -->
+            <div class="modal fade" id="birimDuzenleModal" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <form id="formEditBirim">
+                      <input type="hidden" id="edit_birim_id">
+                      <div class="modal-header bg-light">
+                        <h5 class="modal-title"><i class="fa-solid fa-pen text-primary"></i> Birim Düzenle</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="edit_birim_adi" class="form-label">Birim Adı</label>
+                            <input type="text" class="form-control" id="edit_birim_adi" required>
+                        </div>
+                      </div>
+                      <div class="modal-footer border-0">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                        <button type="submit" class="btn btn-primary">Güncelle</button>
+                      </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+            `;
+            
+            document.getElementById('main-content').insertAdjacentHTML('beforeend', html);
+            renderTable();
+
+            // Olay Dinleyicileri
+            document.getElementById('formAddBirim').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const adi = document.getElementById('birim_adi').value;
+                DB.addBirim(adi);
+                bootstrap.Modal.getInstance(document.getElementById('birimEkleModal')).hide();
+                document.getElementById('formAddBirim').reset();
+                gosterMesaj("Birim başarıyla eklendi.", "success");
+                renderTable();
+            });
+
+            document.getElementById('formEditBirim').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const id = document.getElementById('edit_birim_id').value;
+                const adi = document.getElementById('edit_birim_adi').value;
+                DB.updateBirim(id, adi);
+                bootstrap.Modal.getInstance(document.getElementById('birimDuzenleModal')).hide();
+                gosterMesaj("Birim başarıyla güncellendi.", "success");
+                renderTable();
+            });
+        });
+
+        function renderTable() {
+            const birimler = DB.getBirimler();
+            const tbody = document.getElementById('birimler-table-body');
+            if (birimler.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-muted py-4">Sistemde kayıtlı birim bulunmamaktadır.</td></tr>';
+                return;
+            }
+            
+            // Sıralama
+            birimler.sort((a, b) => a.birim_adi.localeCompare(b.birim_adi));
+
+            let html = '';
+            birimler.forEach((b, index) => {
+                const personelSayisi = DB.getBirimPersonelSayisi(b.id);
+                html += `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td class="text-start fw-bold">${b.birim_adi}</td>
+                    <td><span class="badge bg-secondary rounded-pill">${personelSayisi} Personel</span></td>
+                    <td>
+                        <button type="button" class="btn btn-sm btn-outline-primary me-1" 
+                                onclick="editBirim(${b.id}, '${b.birim_adi}')" title="Düzenle">
+                            <i class="fa-solid fa-pen"></i> Düzenle
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" title="Sil" onclick="deleteBirim(${b.id})">
+                            <i class="fa-solid fa-trash"></i> Sil
+                        </button>
+                    </td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+        }
+
+        function editBirim(id, ad) {
+            document.getElementById('edit_birim_id').value = id;
+            document.getElementById('edit_birim_adi').value = ad;
+            var myModal = new bootstrap.Modal(document.getElementById('birimDuzenleModal'));
+            myModal.show();
+        }
+
+        function deleteBirim(id) {
+            if (confirm('DİKKAT: Bu birimi silerseniz, bu birime bağlı TÜM PERSONELLER ve MESAİ KAYITLARI da silinecektir! Onaylıyor musunuz?')) {
+                DB.deleteBirim(id);
+                gosterMesaj("Birim ve bağlı tüm kayıtlar başarıyla silindi.", "success");
+                renderTable();
+            }
+        }
+
+        function gosterMesaj(mesaj, tur) {
+            document.getElementById('mesaj-alani').innerHTML = `
+            <div class="alert alert-${tur} alert-dismissible fade show" role="alert">
+                ${mesaj}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>`;
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

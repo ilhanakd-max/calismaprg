@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dış Birim Mesai Takip Sistemi - Mesailer</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        body { background-color: #f4f6f9; display: flex; flex-direction: column; min-height: 100vh; }
+        .navbar-brand { font-weight: 600; min-width: 0; max-width: 50vw; line-height: 1.2; font-size: clamp(0.95rem, 2.4vw, 1.25rem); overflow-wrap: break-word; word-break: break-word; }
+        @media (max-width: 991.98px) { .navbar-brand { max-width: 68vw; font-size: clamp(0.9rem, 3vw, 1.1rem); } }
+        .content-wrapper { padding-top: 20px; padding-bottom: 40px; flex: 1; }
+        
+        @media (min-width: 992px) {
+            .row-cols-lg-7 > * { flex: 0 0 auto; width: 14.285714%; }
+        }
+    </style>
+</head>
+<body>
+
+    <script src="assets/js/db.js"></script>
+    <script src="assets/js/app.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const secili_birim = parseInt(urlParams.get('birim_id')) || 0;
+            const secili_personel = parseInt(urlParams.get('personel_id')) || 0;
+            
+            // Tarih belirleme
+            let baslangic = urlParams.get('baslangic');
+            let bitis = urlParams.get('bitis');
+            
+            if (!baslangic || !bitis) {
+                const today = new Date();
+                const dayOfWeek = today.getDay(); 
+                const diffToMonday = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                const firstDay = new Date(today.setDate(diffToMonday));
+                const lastDay = new Date(firstDay);
+                lastDay.setDate(firstDay.getDate() + 6);
+                
+                baslangic = firstDay.toISOString().split('T')[0];
+                bitis = lastDay.toISOString().split('T')[0];
+            }
+
+            const html = `
+            <div id="mesaj-alani"></div>
+
+            <div class="card mb-4 shadow-sm">
+                <div class="card-body">
+                    <form id="filterForm" class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label">Birim Seçiniz</label>
+                            <select id="filter_birim_id" class="form-select" onchange="document.getElementById('filter_personel_id').value='0'; applyFilter()">
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Personel Seçiniz</label>
+                            <select id="filter_personel_id" class="form-select" onchange="applyFilter()">
+                                <option value="0">Tüm Personeller</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Başlangıç</label>
+                            <input type="date" class="form-control" id="filter_baslangic" value="${baslangic}">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Bitiş</label>
+                            <input type="date" class="form-control" id="filter_bitis" value="${bitis}">
+                        </div>
+                        <div class="col-md-2">
+                            <button type="button" class="btn btn-primary w-100" onclick="applyFilter()"><i class="fa-solid fa-filter"></i> Filtrele</button>
+                        </div>
+                        <div class="col-12 mt-3 d-flex justify-content-end gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDateRange('week')">Bu Hafta</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDateRange('month')">Bu Ay</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-12">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0"><i class="fa-solid fa-calendar-week text-primary"></i> Çalışma Programı</h5>
+                        ${DB.isAdmin() ? `<button class="btn btn-success btn-sm" onclick="openMesaiEkleModal()"><i class="fa-solid fa-plus"></i> Mesai Ekle</button>` : ''}
+                    </div>
+                    
+                    <div id="calendar-grid" class="row row-cols-1 row-cols-md-2 row-cols-lg-7">
+                        <!-- Takvim buraya -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- MESAİ EKLE MODAL -->
+            <div class="modal fade" id="mesaiEkleModal" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <form id="mesaiForm">
+                      <input type="hidden" id="modal_mesai_id" value="0">
+                      
+                      <div class="modal-header">
+                        <h5 class="modal-title" id="mesaiModalTitle">Mesai Ekle</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                      </div>
+                      <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label text-primary fw-bold">Personel</label>
+                            <select class="form-select border-primary" id="modal_personel_id" required>
+                                <option value="">-- Personel Seçin --</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Birim</label>
+                            <select class="form-select" id="modal_birim_id" required>
+                            </select>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col">
+                                <label class="form-label">Başlangıç Tarihi</label>
+                                <input type="date" class="form-control" id="modal_bas_tarih" required>
+                            </div>
+                            <div class="col">
+                                <label class="form-label">Bitiş Tarihi</label>
+                                <input type="date" class="form-control" id="modal_bitis_tarih" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Durum</label>
+                            <select class="form-select" id="modal_durum" required>
+                                <option value="Çalışıyor">Çalışıyor</option>
+                                <option value="İzinli">İzinli</option>
+                                <option value="Raporlu">Raporlu</option>
+                                <option value="Tatil">Tatil</option>
+                            </select>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col">
+                                <label class="form-label">Başlangıç Saati</label>
+                                <input type="time" class="form-control" id="modal_baslangic">
+                            </div>
+                            <div class="col">
+                                <label class="form-label">Bitiş Saati</label>
+                                <input type="time" class="form-control" id="modal_bitis">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Notlar (Opsiyonel)</label>
+                            <textarea class="form-control" id="modal_notlar" rows="2"></textarea>
+                        </div>
+                      </div>
+                      <div class="modal-footer border-0">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
+                        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-save"></i> Kaydet</button>
+                      </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+            `;
+            
+            document.getElementById('main-content').insertAdjacentHTML('beforeend', html);
+            
+            populateSelects(secili_birim, secili_personel);
+            renderCalendar(secili_birim, secili_personel, baslangic, bitis);
+
+            // Modal Form Submission
+            document.getElementById('mesaiForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const data = {
+                    personel_id: document.getElementById('modal_personel_id').value,
+                    birim_id: document.getElementById('modal_birim_id').value,
+                    baslangic_saati: document.getElementById('modal_baslangic').value,
+                    bitis_saati: document.getElementById('modal_bitis').value,
+                    durum: document.getElementById('modal_durum').value,
+                    notlar: document.getElementById('modal_notlar').value
+                };
+
+                const basTarih = new Date(document.getElementById('modal_bas_tarih').value);
+                const bitisTarih = new Date(document.getElementById('modal_bitis_tarih').value);
+                const mesaiId = parseInt(document.getElementById('modal_mesai_id').value);
+
+                if (mesaiId > 0) {
+                    // Update single record
+                    data.tarih = document.getElementById('modal_bas_tarih').value;
+                    DB.updateMesai(mesaiId, data);
+                } else {
+                    // Insert multiple if range
+                    for (let d = new Date(basTarih); d <= bitisTarih; d.setDate(d.getDate() + 1)) {
+                        let dt = new Date(d);
+                        dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset());
+                        data.tarih = dt.toISOString().split('T')[0];
+                        
+                        // Check if exists
+                        let existing = DB.getDB().mesailer.find(m => m.personel_id == data.personel_id && m.tarih == data.tarih);
+                        if(existing) {
+                            DB.updateMesai(existing.id, data);
+                        } else {
+                            DB.addMesai(data);
+                        }
+                    }
+                }
+
+                bootstrap.Modal.getInstance(document.getElementById('mesaiEkleModal')).hide();
+                applyFilter();
+            });
+            
+            // Auto calculate end time
+            document.getElementById('modal_baslangic').addEventListener('change', function() {
+                var val = this.value;
+                if (!val) return;
+                var split = val.split(':');
+                var hours = parseInt(split[0], 10);
+                var minutes = parseInt(split[1], 10);
+                var addedHours = (hours === 8 && minutes === 30) ? 9 : 8;
+                hours = (hours + addedHours) % 24;
+                document.getElementById('modal_bitis').value = String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0');
+            });
+        });
+
+        function populateSelects(secili_birim, secili_personel) {
+            const birimler = DB.getBirimler();
+            let bOptions = '<option value="0">Tüm Birimler</option>';
+            let modalBOptions = '';
+            birimler.forEach(b => {
+                bOptions += `<option value="${b.id}">${b.birim_adi}</option>`;
+                modalBOptions += `<option value="${b.id}">${b.birim_adi}</option>`;
+            });
+            document.getElementById('filter_birim_id').innerHTML = bOptions;
+            document.getElementById('modal_birim_id').innerHTML = modalBOptions;
+            document.getElementById('filter_birim_id').value = secili_birim;
+
+            updatePersonelSelect(secili_birim, secili_personel);
+        }
+
+        function updatePersonelSelect(birim_id, secili_personel) {
+            const personeller = DB.getPersoneller(birim_id == 0 ? null : birim_id);
+            let pOptions = '<option value="0">Tüm Personeller</option>';
+            let modalPOptions = '<option value="">-- Personel Seçin --</option>';
+            personeller.forEach(p => {
+                pOptions += `<option value="${p.id}">${p.ad_soyad}</option>`;
+                modalPOptions += `<option value="${p.id}">${p.ad_soyad}</option>`;
+            });
+            document.getElementById('filter_personel_id').innerHTML = pOptions;
+            document.getElementById('modal_personel_id').innerHTML = modalPOptions;
+            document.getElementById('filter_personel_id').value = secili_personel;
+        }
+
+        window.applyFilter = function() {
+            const b = document.getElementById('filter_birim_id').value;
+            const p = document.getElementById('filter_personel_id').value;
+            const start = document.getElementById('filter_baslangic').value;
+            const end = document.getElementById('filter_bitis').value;
+            
+            const newUrl = window.location.pathname + `?birim_id=${b}&personel_id=${p}&baslangic=${start}&bitis=${end}`;
+            window.history.pushState({path:newUrl}, '', newUrl);
+            
+            updatePersonelSelect(b, p);
+            renderCalendar(b, p, start, end);
+        }
+
+        window.setDateRange = function(type) {
+            const today = new Date();
+            const toLocalDateString = (d) => {
+                let dt = new Date(d);
+                dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset());
+                return dt.toISOString().split('T')[0];
+            };
+
+            if (type === 'week') {
+                const dayOfWeek = today.getDay(); 
+                const diffToMonday = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                const firstDay = new Date(today.setDate(diffToMonday));
+                const lastDay = new Date(firstDay);
+                lastDay.setDate(firstDay.getDate() + 6);
+                document.getElementById('filter_baslangic').value = toLocalDateString(firstDay);
+                document.getElementById('filter_bitis').value = toLocalDateString(lastDay);
+            } else if (type === 'month') {
+                const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+                const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                document.getElementById('filter_baslangic').value = toLocalDateString(firstDay);
+                document.getElementById('filter_bitis').value = toLocalDateString(lastDay);
+            }
+            applyFilter();
+        }
+
+        window.openMesaiEkleModal = function() {
+            document.getElementById('mesaiForm').reset();
+            document.getElementById('modal_mesai_id').value = '0';
+            document.getElementById('mesaiModalTitle').innerHTML = 'Mesai Ekle';
+            
+            // Personel listesi yenileme
+            const personeller = DB.getPersoneller(document.getElementById('filter_birim_id').value == 0 ? null : document.getElementById('filter_birim_id').value);
+            let opts = '<option value="">-- Personel Seçin --</option>';
+            personeller.forEach(p => opts += `<option value="${p.id}">${p.ad_soyad}</option>`);
+            document.getElementById('modal_personel_id').innerHTML = opts;
+            
+            document.getElementById('modal_bas_tarih').value = document.getElementById('filter_baslangic').value;
+            document.getElementById('modal_bitis_tarih').value = document.getElementById('filter_baslangic').value;
+            document.getElementById('modal_baslangic').value = '08:30';
+            document.getElementById('modal_bitis').value = '17:30';
+            document.getElementById('modal_bitis_tarih').parentElement.style.display = 'block';
+            
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('mesaiEkleModal')).show();
+        }
+        
+        window.editMesai = function(id, pId, bId, tarih, bas, bit, durum, notlar) {
+            document.getElementById('mesaiForm').reset();
+            document.getElementById('modal_mesai_id').value = id;
+            document.getElementById('mesaiModalTitle').innerHTML = 'Mesai Düzenle';
+            
+            // Tüm personelleri yükle ki düzenleme yaparken adı görünsün
+            const personeller = DB.getPersoneller();
+            let opts = '';
+            personeller.forEach(p => opts += `<option value="${p.id}">${p.ad_soyad}</option>`);
+            document.getElementById('modal_personel_id').innerHTML = opts;
+            
+            document.getElementById('modal_personel_id').value = pId;
+            document.getElementById('modal_birim_id').value = bId;
+            document.getElementById('modal_bas_tarih').value = tarih;
+            document.getElementById('modal_bitis_tarih').value = tarih;
+            document.getElementById('modal_baslangic').value = bas;
+            document.getElementById('modal_bitis').value = bit;
+            document.getElementById('modal_durum').value = durum;
+            document.getElementById('modal_notlar').value = notlar;
+            
+            document.getElementById('modal_bitis_tarih').parentElement.style.display = 'none';
+            
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('mesaiEkleModal')).show();
+        }
+        
+        window.deleteMesai = function(id) {
+            if(confirm('Bu kaydı silmek istediğinize emin misiniz?')) {
+                DB.deleteMesai(id);
+                applyFilter();
+            }
+        }
+
+        function renderCalendar(bId, pId, start, end) {
+            const container = document.getElementById('calendar-grid');
+            if (bId == 0 && pId == 0) {
+                container.innerHTML = '<div class="col-12"><div class="alert alert-info">Lütfen görüntülemek için bir birim veya personel seçin.</div></div>';
+                return;
+            }
+
+            const startDate = new Date(start);
+            const endDate = new Date(end);
+            
+            const mesailer = DB.getMesailer(bId, start, end);
+            const personeller = DB.getPersoneller(bId == 0 ? null : bId);
+            
+            // Eğer personel filtreli ise sadece onu tut
+            const targetPersonels = pId > 0 ? personeller.filter(p => p.id == pId) : personeller;
+
+            const gunler_tr = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+            
+            let html = '';
+            
+            // Boşlukları doldur
+            let startDay = startDate.getDay(); // 0-6
+            let emptyDays = startDay === 0 ? 6 : startDay - 1; // Pazartesi 1 olsun diye ayarlıyoruz
+            for (let i = 0; i < emptyDays; i++) {
+                html += '<div class="col mb-4 d-none d-lg-block"></div>';
+            }
+
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                let dt = new Date(d);
+                dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset());
+                const dateStr = dt.toISOString().split('T')[0];
+                const dayName = gunler_tr[dt.getDay()];
+                const isWeekend = (dt.getDay() === 0 || dt.getDay() === 6);
+                const headerClass = isWeekend ? 'bg-secondary' : 'bg-primary';
+
+                html += `
+                <div class="col mb-4">
+                    <div class="card h-100 shadow border border-top border-3 ${isWeekend ? 'border-secondary' : 'border-primary'}">
+                        <div class="card-header ${headerClass} text-white text-center py-2">
+                            <h6 class="mb-0 fw-bold">${dayName}</h6>
+                            <small style="opacity: 0.8;">${dt.toLocaleDateString('tr-TR')}</small>
+                        </div>
+                        <div class="card-body p-2" style="background-color: #f8f9fa;">`;
+                
+                targetPersonels.forEach(p => {
+                    const m = mesailer.find(ms => ms.personel_id == p.id && ms.tarih == dateStr);
+                    if (m) {
+                        let bgColor = '#d1e7dd', textColor = '#0f5132';
+                        if (m.durum == 'İzinli') { bgColor = '#fff3cd'; textColor = '#664d03'; }
+                        else if (m.durum == 'Raporlu') { bgColor = '#f8d7da'; textColor = '#842029'; }
+                        else if (m.durum == 'Tatil') { bgColor = '#f8f9fa'; textColor = '#6c757d'; }
+                        
+                        html += `
+                        <div class="rounded p-2 mb-2 border position-relative" style="background-color: ${bgColor}; color: ${textColor}; border-color: ${textColor} !important; min-height: 85px;">
+                            <div class="fw-bold mb-1" style="font-size: 0.85rem; line-height: 1.1;">${p.ad_soyad}</div>
+                            <div style="font-size: 0.8rem;" class="fw-bold">${m.durum}</div>
+                            ${(m.baslangic_saati && m.bitis_saati && m.durum == 'Çalışıyor') ? `<div style="font-size: 0.75rem; margin-top: 3px; font-weight: 500;">${m.baslangic_saati.substring(0,5)} - ${m.bitis_saati.substring(0,5)}</div>` : ''}
+                            ${m.notlar ? `<div style="font-size: 0.7rem; margin-top: 3px; opacity: 0.8; line-height: 1.1;">${m.notlar}</div>` : ''}
+                            
+                            ${DB.isAdmin() ? `
+                            <div class="position-absolute top-0 end-0 p-1" style="opacity: 0.6;">
+                                <i class="fa-solid fa-pen" style="font-size: 0.75rem; cursor: pointer;"
+                                    onclick="editMesai(${m.id}, ${m.personel_id}, ${m.birim_id}, '${m.tarih}', '${m.baslangic_saati || ''}', '${m.bitis_saati || ''}', '${m.durum}', '${m.notlar || ''}')"></i>
+                            </div>
+                            <div class="position-absolute bottom-0 end-0 p-1" style="opacity: 0.6;">
+                                <i class="fa-solid fa-trash" style="font-size: 0.75rem; cursor: pointer;" onclick="deleteMesai(${m.id})"></i>
+                            </div>` : ''}
+                        </div>`;
+                    } else {
+                        html += `
+                        <div class="rounded p-2 mb-2 position-relative bg-white" style="color: #6c757d; border: 1px dashed #6c757d; min-height: 85px;">
+                            <div class="fw-bold mb-1" style="font-size: 0.85rem; opacity: 0.7; line-height: 1.1;">${p.ad_soyad}</div>
+                            <div style="font-size: 0.8rem; font-style: italic; opacity: 0.6;">Kayıt Yok</div>
+                        </div>`;
+                    }
+                });
+
+                html += `
+                        </div>
+                    </div>
+                </div>`;
+            }
+            container.innerHTML = html;
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
