@@ -14,13 +14,13 @@
     </style>
 </head>
 <body>
-
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="assets/js/db.js"></script>
     <script src="assets/js/app.js"></script>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            if (!DB.isAdmin()) {
+        document.addEventListener('appReady', async function() {
+            if (!(await DB.isAdmin())) {
                 document.getElementById('main-content').innerHTML = '<div class="alert alert-danger">Bu sayfaya erişim yetkiniz yoktur.</div>';
                 return;
             }
@@ -33,24 +33,30 @@
                     <div class="card shadow-sm border-0 border-top border-primary border-3">
                         <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
                             <h5 class="mb-0 fw-bold text-primary"><i class="fa-solid fa-bullhorn me-2"></i> Duyuru ve Görev Yönetimi</h5>
-                            <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#duyuruEkleModal">
-                                <i class="fa-solid fa-plus"></i> Yeni Duyuru/Görev Ekle
-                            </button>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#duyuruModal" onclick="openDuyuruModal('yeni', null)">
+                                    <i class="fa-solid fa-plus"></i> Yeni Duyuru
+                                </button>
+                                <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#gorevModal" onclick="openGorevModal('yeni', null)">
+                                    <i class="fa-solid fa-list-check"></i> Yeni Görev
+                                </button>
+                            </div>
                         </div>
                         <div class="card-body p-0">
                             <div class="table-responsive">
                                 <table class="table table-hover table-striped mb-0 text-center align-middle">
                                     <thead class="table-light">
                                         <tr>
-                                            <th>Tür</th>
-                                            <th class="text-start">Başlık</th>
-                                            <th>Hedef Birim</th>
-                                            <th>Tarih Aralığı</th>
-                                            <th>Durum</th>
-                                            <th>İşlemler</th>
+                                            <th class="py-3">Durum</th>
+                                            <th class="py-3 text-start">Başlık</th>
+                                            <th class="py-3">Hedef Kitle</th>
+                                            <th class="py-3">Yayın Süresi</th>
+                                            <th class="py-3">Admin</th>
+                                            <th class="py-3 text-end px-4">İşlemler</th>
                                         </tr>
                                     </thead>
                                     <tbody id="duyurular-table-body">
+                                        <tr><td colspan="6"><div class="spinner-border text-primary my-3" role="status"></div></td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -59,55 +65,126 @@
                 </div>
             </div>
 
-            <!-- EKLE MODAL -->
-            <div class="modal fade" id="duyuruEkleModal" tabindex="-1" aria-hidden="true">
-              <div class="modal-dialog">
+            <!-- DUYURU EKLE/DÜZENLE MODAL -->
+            <div class="modal fade" id="duyuruModal" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog modal-lg">
                 <div class="modal-content">
-                  <form id="formAddDuyuru">
-                      <div class="modal-header bg-light">
-                        <h5 class="modal-title"><i class="fa-solid fa-plus-circle text-success"></i> Yeni Ekle</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                  <form id="formSaveDuyuru">
+                      <input type="hidden" id="modal_duyuru_id" value="0">
+                      <div class="modal-header bg-primary text-white border-0">
+                        <h5 class="modal-title" id="duyuruModalTitle"><i class="fa-solid fa-bullhorn"></i> Duyuru Ekle</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                       </div>
                       <div class="modal-body">
                         <div class="mb-3">
-                            <label class="form-label">Tür</label>
-                            <select class="form-select" id="tur" required>
-                                <option value="duyuru">Genel Duyuru</option>
-                                <option value="gorev">Görev (Tamamlandı Onayı İstenir)</option>
-                            </select>
+                            <label class="form-label fw-bold">Duyuru Başlığı</label>
+                            <input type="text" class="form-control" id="modal_baslik" required>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Başlık</label>
-                            <input type="text" class="form-control" id="baslik" required>
+                            <label class="form-label fw-bold">İçerik (Mesajınız)</label>
+                            <textarea class="form-control" id="modal_icerik" rows="4" required></textarea>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">İçerik</label>
-                            <textarea class="form-control" id="icerik" rows="3" required></textarea>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Hedef Birim</label>
-                            <select class="form-select" id="birim_id" required>
-                                <option value="0">Tüm Birimler</option>
-                            </select>
+                            <label class="form-label fw-bold">Admin Adı <span class="text-muted fw-normal">(Opsiyonel)</span></label>
+                            <input type="text" class="form-control" id="modal_olusturan" placeholder="Duyuruyu yayınlayan kişinin adı">
+                            <div class="form-text">Boş bırakılırsa admin adı gösterilmez.</div>
                         </div>
                         <div class="row mb-3">
-                            <div class="col">
-                                <label class="form-label">Başlangıç Tarihi</label>
-                                <input type="datetime-local" class="form-control" id="baslangic_tarihi">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Hedef Kitle</label>
+                                <select class="form-select" id="modal_birim_id">
+                                    <option value="0">Tüm Birimler (Herkes Görebilir)</option>
+                                </select>
                             </div>
-                            <div class="col">
-                                <label class="form-label">Bitiş Tarihi</label>
-                                <input type="datetime-local" class="form-control" id="bitis_tarihi">
+                            <div class="col-md-6 d-flex align-items-center mt-4">
+                                <div class="form-check form-switch fs-5">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="modal_aktif" checked>
+                                    <label class="form-check-label fs-6 fw-bold ms-2" for="modal_aktif">Aktif (Yayında)</label>
+                                </div>
                             </div>
                         </div>
-                        <div class="mb-3 form-check">
-                            <input type="checkbox" class="form-check-input" id="aktif" value="1" checked>
-                            <label class="form-check-label" for="aktif">Aktif Yayında Göster</label>
+                        <hr>
+                        <h6 class="fw-bold mb-3">Yayın Süresi (Opsiyonel)</h6>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label text-muted small">Başlangıç Zamanı</label>
+                                <input type="datetime-local" class="form-control" id="modal_baslangic_tarihi">
+                                <div class="form-text">Boş bırakırsanız hemen yayınlanır.</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label text-muted small">Bitiş Zamanı</label>
+                                <input type="datetime-local" class="form-control" id="modal_bitis_tarihi">
+                                <div class="form-text">Boş bırakırsanız süresiz olarak yayında kalır.</div>
+                            </div>
                         </div>
                       </div>
                       <div class="modal-footer border-0">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
-                        <button type="submit" class="btn btn-success">Kaydet</button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-save"></i> Kaydet</button>
+                      </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <!-- GÖREV EKLE/DÜZENLE MODAL -->
+            <div class="modal fade" id="gorevModal" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                  <form id="formSaveGorev">
+                      <input type="hidden" id="modal_gorev_id" value="0">
+                      <div class="modal-header bg-success text-white border-0">
+                        <h5 class="modal-title" id="gorevModalTitle"><i class="fa-solid fa-list-check"></i> Görev Ekle</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                      </div>
+                      <div class="modal-body">
+                        <div class="alert alert-info py-2 small">
+                            <i class="fa-solid fa-circle-info"></i> Görev duyuruları kullanıcılar tarafından kapatılamaz. Personeller "Tamamlandı" butonuyla adlarını tamamlayanlar listesine ekleyebilir.
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Görev Başlığı</label>
+                            <input type="text" class="form-control" id="modal_g_baslik" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Görev Açıklaması</label>
+                            <textarea class="form-control" id="modal_g_icerik" rows="4" required placeholder="Örn: Cuma gününe kadar tüm personel ihtiyaç listesini bana iletsin."></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Admin Adı <span class="text-muted fw-normal">(Opsiyonel)</span></label>
+                            <input type="text" class="form-control" id="modal_g_olusturan" placeholder="Görevi yayınlayan kişinin adı">
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Hedef Kitle</label>
+                                <select class="form-select" id="modal_g_birim_id">
+                                    <option value="0">Tüm Birimler (Herkes Görebilir)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 d-flex align-items-center mt-4">
+                                <div class="form-check form-switch fs-5">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="modal_g_aktif" checked>
+                                    <label class="form-check-label fs-6 fw-bold ms-2" for="modal_g_aktif">Aktif (Yayında)</label>
+                                </div>
+                            </div>
+                        </div>
+                        <hr>
+                        <h6 class="fw-bold mb-3">Yayın Süresi (Opsiyonel)</h6>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label text-muted small">Başlangıç Zamanı</label>
+                                <input type="datetime-local" class="form-control" id="modal_g_baslangic_tarihi">
+                                <div class="form-text">Boş bırakırsanız hemen yayınlanır.</div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label text-muted small">Bitiş Zamanı</label>
+                                <input type="datetime-local" class="form-control" id="modal_g_bitis_tarihi">
+                                <div class="form-text">Boş bırakırsanız süresiz olarak yayında kalır.</div>
+                            </div>
+                        </div>
+                      </div>
+                      <div class="modal-footer border-0">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                        <button type="submit" class="btn btn-success"><i class="fa-solid fa-save"></i> Kaydet</button>
                       </div>
                   </form>
                 </div>
@@ -118,89 +195,183 @@
             document.getElementById('main-content').insertAdjacentHTML('beforeend', html);
             
             // Birimleri doldur
-            const birimler = DB.getBirimler();
-            let bOptions = '<option value="0">Tüm Birimler</option>';
-            birimler.forEach(b => {
-                bOptions += `<option value="${b.id}">${b.birim_adi}</option>`;
-            });
-            document.getElementById('birim_id').innerHTML = bOptions;
+            const birimler = await DB.getBirimler();
+            let bOpts = '<option value="0">Tüm Birimler (Herkes Görebilir)</option>';
+            birimler.forEach(b => { bOpts += `<option value="${b.id}">Sadece ${b.birim_adi}</option>`; });
+            document.getElementById('modal_birim_id').innerHTML = bOpts;
+            document.getElementById('modal_g_birim_id').innerHTML = bOpts;
             
-            renderTable();
+            await renderTable();
 
-            document.getElementById('formAddDuyuru').addEventListener('submit', function(e) {
+            // Duyuru Kaydet
+            document.getElementById('formSaveDuyuru').addEventListener('submit', async function(e) {
                 e.preventDefault();
-                const d_baslangic = document.getElementById('baslangic_tarihi').value;
-                const d_bitis = document.getElementById('bitis_tarihi').value;
+                const id = parseInt(document.getElementById('modal_duyuru_id').value);
+                const basTarih = document.getElementById('modal_baslangic_tarihi').value;
+                const bitTarih = document.getElementById('modal_bitis_tarihi').value;
 
-                DB.addDuyuru({
-                    tur: document.getElementById('tur').value,
-                    baslik: document.getElementById('baslik').value,
-                    icerik: document.getElementById('icerik').value,
-                    birim_id: document.getElementById('birim_id').value,
-                    baslangic_tarihi: d_baslangic ? new Date(d_baslangic).toISOString() : null,
-                    bitis_tarihi: d_bitis ? new Date(d_bitis).toISOString() : null,
-                    aktif: document.getElementById('aktif').checked ? 1 : 0,
-                    olusturan: 'Admin'
-                });
-                bootstrap.Modal.getInstance(document.getElementById('duyuruEkleModal')).hide();
-                document.getElementById('formAddDuyuru').reset();
-                renderTable();
+                const data = {
+                    baslik: document.getElementById('modal_baslik').value,
+                    icerik: document.getElementById('modal_icerik').value,
+                    birim_id: document.getElementById('modal_birim_id').value,
+                    baslangic_tarihi: basTarih ? new Date(basTarih).toISOString() : null,
+                    bitis_tarihi: bitTarih ? new Date(bitTarih).toISOString() : null,
+                    aktif: document.getElementById('modal_aktif').checked ? 1 : 0,
+                    olusturan: document.getElementById('modal_olusturan').value || null,
+                    tur: 'duyuru'
+                };
+                
+                if (id > 0) { await DB.updateDuyuru(id, data); } 
+                else { await DB.addDuyuru(data); }
+                bootstrap.Modal.getInstance(document.getElementById('duyuruModal')).hide();
+                await renderTable();
+            });
+
+            // Görev Kaydet
+            document.getElementById('formSaveGorev').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const id = parseInt(document.getElementById('modal_gorev_id').value);
+                const basTarih = document.getElementById('modal_g_baslangic_tarihi').value;
+                const bitTarih = document.getElementById('modal_g_bitis_tarihi').value;
+
+                const data = {
+                    baslik: document.getElementById('modal_g_baslik').value,
+                    icerik: document.getElementById('modal_g_icerik').value,
+                    birim_id: document.getElementById('modal_g_birim_id').value,
+                    baslangic_tarihi: basTarih ? new Date(basTarih).toISOString() : null,
+                    bitis_tarihi: bitTarih ? new Date(bitTarih).toISOString() : null,
+                    aktif: document.getElementById('modal_g_aktif').checked ? 1 : 0,
+                    olusturan: document.getElementById('modal_g_olusturan').value || null,
+                    tur: 'gorev'
+                };
+                
+                if (id > 0) { await DB.updateDuyuru(id, data); }
+                else { await DB.addDuyuru(data); }
+                bootstrap.Modal.getInstance(document.getElementById('gorevModal')).hide();
+                await renderTable();
             });
         });
 
-        window.toggleDuyuruAktif = function(id, isAktif) {
-            DB.updateDuyuru(id, { aktif: isAktif ? 0 : 1 });
-            renderTable();
+        window.openDuyuruModal = function(action, d) {
+            document.getElementById('modal_duyuru_id').value = d ? d.id : '0';
+            document.getElementById('duyuruModalTitle').innerHTML = d ? '<i class="fa-solid fa-pen"></i> Duyuru Düzenle' : '<i class="fa-solid fa-bullhorn"></i> Yeni Duyuru Ekle';
+            document.getElementById('modal_baslik').value = d ? d.baslik : '';
+            document.getElementById('modal_icerik').value = d ? d.icerik : '';
+            document.getElementById('modal_olusturan').value = d ? (d.olusturan || '') : '';
+            document.getElementById('modal_aktif').checked = d ? (d.aktif == 1) : true;
+            document.getElementById('modal_baslangic_tarihi').value = d && d.baslangic_tarihi ? new Date(d.baslangic_tarihi).toISOString().slice(0,16) : '';
+            document.getElementById('modal_bitis_tarihi').value = d && d.bitis_tarihi ? new Date(d.bitis_tarihi).toISOString().slice(0,16) : '';
+            if (d && document.getElementById('modal_birim_id')) document.getElementById('modal_birim_id').value = d.birim_id;
         }
 
-        window.deleteDuyuru = function(id) {
+        window.openGorevModal = function(action, d) {
+            document.getElementById('modal_gorev_id').value = d ? d.id : '0';
+            document.getElementById('gorevModalTitle').innerHTML = d ? '<i class="fa-solid fa-pen"></i> Görev Düzenle' : '<i class="fa-solid fa-list-check"></i> Yeni Görev Ekle';
+            document.getElementById('modal_g_baslik').value = d ? d.baslik : '';
+            document.getElementById('modal_g_icerik').value = d ? d.icerik : '';
+            document.getElementById('modal_g_olusturan').value = d ? (d.olusturan || '') : '';
+            document.getElementById('modal_g_aktif').checked = d ? (d.aktif == 1) : true;
+            document.getElementById('modal_g_baslangic_tarihi').value = d && d.baslangic_tarihi ? new Date(d.baslangic_tarihi).toISOString().slice(0,16) : '';
+            document.getElementById('modal_g_bitis_tarihi').value = d && d.bitis_tarihi ? new Date(d.bitis_tarihi).toISOString().slice(0,16) : '';
+            if (d && document.getElementById('modal_g_birim_id')) document.getElementById('modal_g_birim_id').value = d.birim_id;
+        }
+
+        window.deleteDuyuru = async function(id) {
             if(confirm('Bu kaydı silmek istediğinize emin misiniz?')) {
-                DB.deleteDuyuru(id);
-                renderTable();
+                await DB.deleteDuyuru(id);
+                await renderTable();
             }
         }
 
-        function renderTable() {
-            const duyurular = DB.getDuyurularAdmin();
+        window._duyuruCache = {};
+
+        async function renderTable() {
+            const duyurular = await DB.getDuyurularAdmin();
             const tbody = document.getElementById('duyurular-table-body');
             
             if (duyurular.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-muted py-4">Kayıtlı duyuru bulunamadı.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">Sistemde kayıtlı duyuru veya görev bulunmamaktadır.</td></tr>';
                 return;
             }
 
+            // Birim isimlerini toplu çek
+            const birimler = await DB.getBirimler();
+            const birimMap = { 0: null };
+            birimler.forEach(b => { birimMap[b.id] = b; });
+
             let html = '';
-            duyurular.forEach((d) => {
-                let turIcon = d.tur === 'gorev' ? '<span class="badge bg-danger"><i class="fa-solid fa-list-check"></i> Görev</span>' : '<span class="badge bg-info text-dark"><i class="fa-solid fa-bell"></i> Duyuru</span>';
-                let birim = DB.getBirim(d.birim_id);
-                let birimAd = d.birim_id == 0 ? 'Tüm Birimler' : (birim ? birim.birim_adi : 'Bilinmiyor');
-                let durum = d.aktif == 1 ? '<span class="badge bg-success">Aktif</span>' : '<span class="badge bg-secondary">Pasif</span>';
+            for (let i = 0; i < duyurular.length; i++) {
+                const d = duyurular[i];
+                const isGorev = d.tur === 'gorev';
                 
-                let tarihAraligi = '-';
-                if(d.baslangic_tarihi || d.bitis_tarihi) {
-                    let bas = d.baslangic_tarihi ? new Date(d.baslangic_tarihi).toLocaleDateString('tr-TR') : 'Süresiz';
-                    let bit = d.bitis_tarihi ? new Date(d.bitis_tarihi).toLocaleDateString('tr-TR') : 'Süresiz';
-                    tarihAraligi = `${bas} - ${bit}`;
+                let durumBadge = d.aktif == 1 ? '<span class="badge bg-success">Aktif</span>' : '<span class="badge bg-secondary">Pasif</span>';
+                
+                // Başlık + tür badge
+                let baslikHtml = '';
+                if (isGorev) baslikHtml += '<span class="badge bg-danger me-1"><i class="fa-solid fa-list-check"></i> Görev</span>';
+                baslikHtml += `<strong class="text-dark">${d.baslik}</strong>`;
+                if (isGorev) {
+                    const tamamlayanlar = await DB.getGorevTamamlayanlar(d.id);
+                    baslikHtml += `<div class="small text-muted mt-1"><i class="fa-solid fa-circle-check text-success"></i> ${tamamlayanlar.length} personel tamamladı</div>`;
                 }
+
+                // Hedef birim
+                let birimHtml = '';
+                if (d.birim_id == 0) {
+                    birimHtml = '<span class="badge bg-info text-dark"><i class="fa-solid fa-users"></i> Tüm Birimler</span>';
+                } else {
+                    const b = birimMap[d.birim_id];
+                    birimHtml = `<span class="badge bg-primary"><i class="fa-solid fa-building"></i> ${b ? b.birim_adi : 'Bilinmiyor'}</span>`;
+                }
+
+                // Yayın süresi
+                let yayinHtml = '<small class="text-muted">Süresiz Yayın</small>';
+                if (d.baslangic_tarihi || d.bitis_tarihi) {
+                    const bas = d.baslangic_tarihi ? new Date(d.baslangic_tarihi).toLocaleString('tr-TR', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'}) : 'Hemen';
+                    const bit = d.bitis_tarihi ? new Date(d.bitis_tarihi).toLocaleString('tr-TR', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'}) : 'Süresiz';
+                    yayinHtml = `<small class="text-muted"><div>Başlangıç: <strong>${bas}</strong></div><div>Bitiş: <strong>${bit}</strong></div></small>`;
+                }
+
+                // Admin
+                let adminHtml = d.olusturan ? `<span class="text-dark"><i class="fa-solid fa-user-pen text-muted me-1"></i>${d.olusturan}</span>` : '<span class="text-muted">—</span>';
+
+                // İşlemler
+                let islemler = '';
+                if (isGorev) {
+                    islemler = `
+                        <button type="button" class="btn btn-sm btn-outline-success" title="Düzenle"
+                                data-bs-toggle="modal" data-bs-target="#gorevModal"
+                                onclick="openGorevModal('edit', window._duyuruCache['d${d.id}'])">
+                            <i class="fa-solid fa-pen"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="deleteDuyuru(${d.id})" title="Sil">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>`;
+                } else {
+                    islemler = `
+                        <button type="button" class="btn btn-sm btn-outline-primary" title="Düzenle"
+                                data-bs-toggle="modal" data-bs-target="#duyuruModal"
+                                onclick="openDuyuruModal('edit', window._duyuruCache['d${d.id}'])">
+                            <i class="fa-solid fa-pen"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger ms-1" onclick="deleteDuyuru(${d.id})" title="Sil">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>`;
+                }
+                
+                // Cache to duyuruCache
+                window._duyuruCache['d' + d.id] = d;
 
                 html += `
                 <tr>
-                    <td>${turIcon}</td>
-                    <td class="text-start fw-bold">${d.baslik}</td>
-                    <td>${birimAd}</td>
-                    <td>${tarihAraligi}</td>
-                    <td>${durum}</td>
-                    <td>
-                        <button type="button" class="btn btn-sm ${d.aktif == 1 ? 'btn-outline-warning' : 'btn-outline-success'} me-1" 
-                                onclick="toggleDuyuruAktif(${d.id}, ${d.aktif == 1})">
-                            ${d.aktif == 1 ? 'Pasif Yap' : 'Aktif Yap'}
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteDuyuru(${d.id})">
-                            <i class="fa-solid fa-trash"></i> Sil
-                        </button>
-                    </td>
+                    <td class="px-4">${durumBadge}</td>
+                    <td class="text-start">${baslikHtml}</td>
+                    <td>${birimHtml}</td>
+                    <td>${yayinHtml}</td>
+                    <td>${adminHtml}</td>
+                    <td class="text-end px-4">${islemler}</td>
                 </tr>`;
-            });
+            }
             tbody.innerHTML = html;
         }
     </script>

@@ -15,12 +15,13 @@
 </head>
 <body>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="assets/js/db.js"></script>
     <script src="assets/js/app.js"></script>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            if (!DB.isAdmin()) {
+        document.addEventListener('appReady', async function() {
+            if (!(await DB.isAdmin())) {
                 document.getElementById('main-content').innerHTML = '<div class="alert alert-danger">Bu sayfaya erişim yetkiniz yoktur. (Yönetici girişi yapınız)</div>';
                 return;
             }
@@ -49,7 +50,7 @@
                                         </tr>
                                     </thead>
                                     <tbody id="birimler-table-body">
-                                        <!-- Veriler Buraya -->
+                                        <tr><td colspan="4"><div class="spinner-border text-primary my-3" role="status"></div></td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -109,32 +110,32 @@
             `;
             
             document.getElementById('main-content').insertAdjacentHTML('beforeend', html);
-            renderTable();
+            await renderTable();
 
             // Olay Dinleyicileri
-            document.getElementById('formAddBirim').addEventListener('submit', function(e) {
+            document.getElementById('formAddBirim').addEventListener('submit', async function(e) {
                 e.preventDefault();
                 const adi = document.getElementById('birim_adi').value;
-                DB.addBirim(adi);
+                await DB.addBirim(adi);
                 bootstrap.Modal.getInstance(document.getElementById('birimEkleModal')).hide();
                 document.getElementById('formAddBirim').reset();
                 gosterMesaj("Birim başarıyla eklendi.", "success");
-                renderTable();
+                await renderTable();
             });
 
-            document.getElementById('formEditBirim').addEventListener('submit', function(e) {
+            document.getElementById('formEditBirim').addEventListener('submit', async function(e) {
                 e.preventDefault();
                 const id = document.getElementById('edit_birim_id').value;
                 const adi = document.getElementById('edit_birim_adi').value;
-                DB.updateBirim(id, adi);
+                await DB.updateBirim(id, adi);
                 bootstrap.Modal.getInstance(document.getElementById('birimDuzenleModal')).hide();
                 gosterMesaj("Birim başarıyla güncellendi.", "success");
-                renderTable();
+                await renderTable();
             });
         });
 
-        function renderTable() {
-            const birimler = DB.getBirimler();
+        async function renderTable() {
+            const birimler = await DB.getBirimler();
             const tbody = document.getElementById('birimler-table-body');
             if (birimler.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" class="text-muted py-4">Sistemde kayıtlı birim bulunmamaktadır.</td></tr>';
@@ -145,11 +146,12 @@
             birimler.sort((a, b) => a.birim_adi.localeCompare(b.birim_adi));
 
             let html = '';
-            birimler.forEach((b, index) => {
-                const personelSayisi = DB.getBirimPersonelSayisi(b.id);
+            for (let i = 0; i < birimler.length; i++) {
+                const b = birimler[i];
+                const personelSayisi = await DB.getBirimPersonelSayisi(b.id);
                 html += `
                 <tr>
-                    <td>${index + 1}</td>
+                    <td>${i + 1}</td>
                     <td class="text-start fw-bold">${b.birim_adi}</td>
                     <td><span class="badge bg-secondary rounded-pill">${personelSayisi} Personel</span></td>
                     <td>
@@ -162,7 +164,7 @@
                         </button>
                     </td>
                 </tr>`;
-            });
+            }
             tbody.innerHTML = html;
         }
 
@@ -173,11 +175,11 @@
             myModal.show();
         }
 
-        function deleteBirim(id) {
+        async function deleteBirim(id) {
             if (confirm('DİKKAT: Bu birimi silerseniz, bu birime bağlı TÜM PERSONELLER ve MESAİ KAYITLARI da silinecektir! Onaylıyor musunuz?')) {
-                DB.deleteBirim(id);
+                await DB.deleteBirim(id);
                 gosterMesaj("Birim ve bağlı tüm kayıtlar başarıyla silindi.", "success");
-                renderTable();
+                await renderTable();
             }
         }
 

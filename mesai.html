@@ -11,7 +11,6 @@
         .navbar-brand { font-weight: 600; min-width: 0; max-width: 50vw; line-height: 1.2; font-size: clamp(0.95rem, 2.4vw, 1.25rem); overflow-wrap: break-word; word-break: break-word; }
         @media (max-width: 991.98px) { .navbar-brand { max-width: 68vw; font-size: clamp(0.9rem, 3vw, 1.1rem); } }
         .content-wrapper { padding-top: 20px; padding-bottom: 40px; flex: 1; }
-        
         @media (min-width: 992px) {
             .row-cols-lg-7 > * { flex: 0 0 auto; width: 14.285714%; }
         }
@@ -19,16 +18,22 @@
 </head>
 <body>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="assets/js/db.js"></script>
     <script src="assets/js/app.js"></script>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('appReady', async function() {
             const urlParams = new URLSearchParams(window.location.search);
             const secili_birim = parseInt(urlParams.get('birim_id')) || 0;
             const secili_personel = parseInt(urlParams.get('personel_id')) || 0;
             
-            // Tarih belirleme
+            const toLocalDateString = (d) => {
+                let dt = new Date(d);
+                dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset());
+                return dt.toISOString().split('T')[0];
+            };
+
             let baslangic = urlParams.get('baslangic');
             let bitis = urlParams.get('bitis');
             
@@ -36,30 +41,43 @@
                 const today = new Date();
                 const dayOfWeek = today.getDay(); 
                 const diffToMonday = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-                const firstDay = new Date(today.setDate(diffToMonday));
-                const lastDay = new Date(firstDay);
-                lastDay.setDate(firstDay.getDate() + 6);
-                
-                baslangic = firstDay.toISOString().split('T')[0];
-                bitis = lastDay.toISOString().split('T')[0];
+                const firstDay = new Date(today.getFullYear(), today.getMonth(), diffToMonday);
+                const lastDay = new Date(firstDay.getFullYear(), firstDay.getMonth(), firstDay.getDate() + 6);
+                baslangic = toLocalDateString(firstDay);
+                bitis = toLocalDateString(lastDay);
             }
+
+            // Ay gorunumu kontrolu
+            const basD = new Date(baslangic);
+            const bitD = new Date(bitis);
+            const isMonthView = basD.getDate() === 1 && 
+                new Date(bitD.getFullYear(), bitD.getMonth() + 1, 0).getDate() === bitD.getDate();
+            const ayKey = baslangic.substring(0, 7);
 
             const html = `
             <div id="mesaj-alani"></div>
 
+            <!-- Bugün/Yarın İzinli Gösterge -->
+            <div id="izin-gosterge-container"></div>
+
+            <!-- Üst Filtreleme Barı -->
             <div class="card mb-4 shadow-sm">
                 <div class="card-body">
                     <form id="filterForm" class="row g-3 align-items-end">
-                        <div class="col-md-3">
+                        <div class="col-md-2">
                             <label class="form-label">Birim Seçiniz</label>
                             <select id="filter_birim_id" class="form-select" onchange="document.getElementById('filter_personel_id').value='0'; applyFilter()">
                             </select>
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-md-2">
                             <label class="form-label">Personel Seçiniz</label>
                             <select id="filter_personel_id" class="form-select" onchange="applyFilter()">
                                 <option value="0">Tüm Personeller</option>
                             </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Ay Seçiniz</label>
+                            <input type="month" class="form-control" id="ay_secici" value="${baslangic.substring(0,7)}" onchange="setCustomMonth(this.value)">
                         </div>
                         <div class="col-md-2">
                             <label class="form-label">Başlangıç</label>
@@ -77,25 +95,51 @@
                             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDateRange('month')">Bu Ay</button>
                         </div>
                     </form>
+                    <div id="oto_doldurma_bar" class="d-flex justify-content-end gap-2 mt-3"></div>
                 </div>
             </div>
 
+            <!-- İzin Takip Panosu (Aylık görünümde) -->
+            <div id="izin-panosu-container"></div>
+
+            <!-- Çalışma Programı -->
             <div class="row">
-                <div class="col-12">
+                <div class="col-12" id="calisma_programi_container">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h5 class="mb-0"><i class="fa-solid fa-calendar-week text-primary"></i> Çalışma Programı</h5>
-                        ${DB.isAdmin() ? `<button class="btn btn-success btn-sm" onclick="openMesaiEkleModal()"><i class="fa-solid fa-plus"></i> Mesai Ekle</button>` : ''}
+                        <div>
+                            <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="offcanvas" data-bs-target="#personelOffcanvas">
+                                <i class="fa-solid fa-users"></i> Personelleri Göster
+                            </button>
+                            <span id="mesaiEkleBtnContainer" class="ms-2"></span>
+                        </div>
                     </div>
                     
                     <div id="calendar-grid" class="row row-cols-1 row-cols-md-2 row-cols-lg-7">
-                        <!-- Takvim buraya -->
+                        <div class="col-12"><div class="spinner-border text-primary my-3" role="status"></div></div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Personeller Offcanvas -->
+            <div class="offcanvas offcanvas-start" tabindex="-1" id="personelOffcanvas">
+              <div class="offcanvas-header bg-light border-bottom">
+                <h5 class="offcanvas-title"><i class="fa-solid fa-users"></i> Personeller</h5>
+                <div>
+                    <span id="personelEkleBtn"></span>
+                    <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+                </div>
+              </div>
+              <div class="offcanvas-body p-0">
+                <ul class="list-group list-group-flush" id="personel-listesi">
+                    <li class="list-group-item text-muted">Yükleniyor...</li>
+                </ul>
+              </div>
             </div>
 
             <!-- MESAİ EKLE MODAL -->
             <div class="modal fade" id="mesaiEkleModal" tabindex="-1" aria-hidden="true">
-              <div class="modal-dialog">
+              <div class="modal-dialog modal-lg">
                 <div class="modal-content">
                   <form id="mesaiForm">
                       <input type="hidden" id="modal_mesai_id" value="0">
@@ -117,25 +161,25 @@
                             </select>
                         </div>
                         <div class="row mb-3">
-                            <div class="col">
+                            <div class="col" id="bas_tarih_col">
                                 <label class="form-label">Başlangıç Tarihi</label>
                                 <input type="date" class="form-control" id="modal_bas_tarih" required>
                             </div>
-                            <div class="col">
+                            <div class="col" id="bit_tarih_col">
                                 <label class="form-label">Bitiş Tarihi</label>
                                 <input type="date" class="form-control" id="modal_bitis_tarih" required>
                             </div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Durum</label>
-                            <select class="form-select" id="modal_durum" required>
+                            <select class="form-select" id="modal_durum" required onchange="durumDegisti()">
                                 <option value="Çalışıyor">Çalışıyor</option>
                                 <option value="İzinli">İzinli</option>
                                 <option value="Raporlu">Raporlu</option>
                                 <option value="Tatil">Tatil</option>
                             </select>
                         </div>
-                        <div class="row mb-3">
+                        <div class="row mb-3" id="saat-alani">
                             <div class="col">
                                 <label class="form-label">Başlangıç Saati</label>
                                 <input type="time" class="form-control" id="modal_baslangic">
@@ -149,6 +193,14 @@
                             <label class="form-label">Notlar (Opsiyonel)</label>
                             <textarea class="form-control" id="modal_notlar" rows="2"></textarea>
                         </div>
+                        <!-- Yedek Personel (İzinli/Raporlu seçildiğinde görünür) -->
+                        <div class="mb-3 border rounded p-3 bg-light" id="yedek-alani" style="display:none;">
+                            <label class="form-label fw-bold text-info"><i class="fa-solid fa-user-clock me-1"></i> Yedek Personel Görevlendirme (Opsiyonel)</label>
+                            <select class="form-select" id="modal_yedek_personel_id">
+                                <option value="0">-- Yedek Personel Seçme --</option>
+                            </select>
+                            <div class="form-text">Bu personel izne çıkarken yerine görevlendirilecek "Joker" personeli seçebilirsiniz.</div>
+                        </div>
                       </div>
                       <div class="modal-footer border-0">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Kapat</button>
@@ -158,56 +210,138 @@
                 </div>
               </div>
             </div>
+
+            <!-- PERSONEL EKLE MODAL (Offcanvas'tan) -->
+            <div class="modal fade" id="personelEkleModal" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog">
+                <div class="modal-content">
+                  <form id="personelEkleForm">
+                      <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title"><i class="fa-solid fa-user-plus"></i> Hızlı Personel Ekle</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                      </div>
+                      <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Ad Soyad</label>
+                            <input type="text" class="form-control" id="pekle_ad_soyad" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Birim</label>
+                            <select class="form-select" id="pekle_birim_id" required></select>
+                        </div>
+                      </div>
+                      <div class="modal-footer border-0">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">İptal</button>
+                        <button type="submit" class="btn btn-success"><i class="fa-solid fa-save"></i> Ekle</button>
+                      </div>
+                  </form>
+                </div>
+              </div>
+            </div>
             `;
             
             document.getElementById('main-content').insertAdjacentHTML('beforeend', html);
             
-            populateSelects(secili_birim, secili_personel);
-            renderCalendar(secili_birim, secili_personel, baslangic, bitis);
+            const isAdmin = await DB.isAdmin();
+            if (isAdmin) {
+                document.getElementById('mesaiEkleBtnContainer').innerHTML = `<button class="btn btn-success btn-sm" onclick="openMesaiEkleModal()"><i class="fa-solid fa-plus"></i> Mesai Ekle</button>`;
+                document.getElementById('personelEkleBtn').innerHTML = `<button type="button" class="btn btn-sm btn-success me-2" data-bs-toggle="modal" data-bs-target="#personelEkleModal"><i class="fa-solid fa-plus"></i> Ekle</button>`;
+            }
+
+            await populateSelects(secili_birim, secili_personel);
+            await renderIzinGosterge(secili_birim);
+            await renderIzinPanosu(secili_birim, baslangic, bitis, isMonthView);
+            await renderOtoDoldurBar(secili_birim, baslangic, bitis, isMonthView, isAdmin, ayKey);
+            await renderCalendar(secili_birim, secili_personel, baslangic, bitis);
+
+            // Birim populate for personelEkle modal
+            const birimler = await DB.getBirimler();
+            let bOpts = birimler.map(b => `<option value="${b.id}">${b.birim_adi}</option>`).join('');
+            document.getElementById('pekle_birim_id').innerHTML = bOpts;
+
+            // Personel Ekle form
+            document.getElementById('personelEkleForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const ad_soyad = document.getElementById('pekle_ad_soyad').value.trim();
+                const birim_id = document.getElementById('pekle_birim_id').value;
+                if (ad_soyad && birim_id) {
+                    await DB.addPersonel({ ad_soyad, birim_id: parseInt(birim_id) });
+                    bootstrap.Modal.getInstance(document.getElementById('personelEkleModal')).hide();
+                    document.getElementById('personelEkleForm').reset();
+                    await applyFilter();
+                }
+            });
 
             // Modal Form Submission
-            document.getElementById('mesaiForm').addEventListener('submit', function(e) {
+            document.getElementById('mesaiForm').addEventListener('submit', async function(e) {
                 e.preventDefault();
                 
-                const data = {
-                    personel_id: document.getElementById('modal_personel_id').value,
-                    birim_id: document.getElementById('modal_birim_id').value,
-                    baslangic_saati: document.getElementById('modal_baslangic').value,
-                    bitis_saati: document.getElementById('modal_bitis').value,
-                    durum: document.getElementById('modal_durum').value,
-                    notlar: document.getElementById('modal_notlar').value
-                };
-
-                const basTarih = new Date(document.getElementById('modal_bas_tarih').value);
-                const bitisTarih = new Date(document.getElementById('modal_bitis_tarih').value);
                 const mesaiId = parseInt(document.getElementById('modal_mesai_id').value);
+                const basTarih = document.getElementById('modal_bas_tarih').value;
+                const bitisTarih = document.getElementById('modal_bitis_tarih').value;
+                const personelId = document.getElementById('modal_personel_id').value;
+                const birimId = document.getElementById('modal_birim_id').value;
+                const durum = document.getElementById('modal_durum').value;
+                const baslangicSaati = document.getElementById('modal_baslangic').value;
+                const bitisSaati = document.getElementById('modal_bitis').value;
+                const notlar = document.getElementById('modal_notlar').value;
+                const yedekPersonelId = parseInt(document.getElementById('modal_yedek_personel_id').value) || 0;
 
                 if (mesaiId > 0) {
-                    // Update single record
-                    data.tarih = document.getElementById('modal_bas_tarih').value;
-                    DB.updateMesai(mesaiId, data);
+                    const data = {
+                        personel_id: personelId, birim_id: birimId,
+                        tarih: basTarih, baslangic_saati: baslangicSaati || null,
+                        bitis_saati: bitisSaati || null, durum, notlar
+                    };
+                    await DB.updateMesai(mesaiId, data);
                 } else {
-                    // Insert multiple if range
-                    for (let d = new Date(basTarih); d <= bitisTarih; d.setDate(d.getDate() + 1)) {
+                    // Tarih aralığı için döngü
+                    const bas = new Date(basTarih);
+                    const bit = new Date(bitisTarih);
+                    const existingMesailer = await DB.getMesailer(birimId, basTarih, bitisTarih);
+
+                    for (let d = new Date(bas); d <= bit; d.setDate(d.getDate() + 1)) {
                         let dt = new Date(d);
                         dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset());
-                        data.tarih = dt.toISOString().split('T')[0];
+                        const tarih = dt.toISOString().split('T')[0];
                         
-                        // Check if exists
-                        let existing = DB.getDB().mesailer.find(m => m.personel_id == data.personel_id && m.tarih == data.tarih);
-                        if(existing) {
-                            DB.updateMesai(existing.id, data);
+                        const data = {
+                            personel_id: personelId, birim_id: birimId,
+                            tarih, baslangic_saati: baslangicSaati || null,
+                            bitis_saati: bitisSaati || null, durum, notlar
+                        };
+                        
+                        const existing = existingMesailer.find(m => m.personel_id == personelId && m.tarih === tarih);
+                        if (existing) {
+                            await DB.updateMesai(existing.id, data);
                         } else {
-                            DB.addMesai(data);
+                            await DB.addMesai(data);
+                        }
+                    }
+
+                    // Yedek personel gorevlendirme
+                    if (yedekPersonelId > 0 && (durum === 'İzinli' || durum === 'Raporlu')) {
+                        const bas2 = new Date(basTarih);
+                        const bit2 = new Date(bitisTarih);
+                        for (let d = new Date(bas2); d <= bit2; d.setDate(d.getDate() + 1)) {
+                            let dt = new Date(d);
+                            dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset());
+                            const tarih = dt.toISOString().split('T')[0];
+                            const yedekExist = existingMesailer.find(m => m.personel_id == yedekPersonelId && m.tarih === tarih);
+                            if (!yedekExist) {
+                                const personelData = await DB.getPersonel(parseInt(personelId));
+                                const yedekNot = `(${personelData ? personelData.ad_soyad : 'Personel'} yerine görevlendirildi) ${notlar}`;
+                                await DB.addMesai({ personel_id: yedekPersonelId, birim_id: birimId, tarih, baslangic_saati: '08:30', bitis_saati: '17:30', durum: 'Çalışıyor', notlar: yedekNot });
+                            }
                         }
                     }
                 }
 
                 bootstrap.Modal.getInstance(document.getElementById('mesaiEkleModal')).hide();
-                applyFilter();
+                await applyFilter();
             });
             
-            // Auto calculate end time
+            // Otomatik bitiş saati hesaplama
             document.getElementById('modal_baslangic').addEventListener('change', function() {
                 var val = this.value;
                 if (!val) return;
@@ -220,9 +354,260 @@
             });
         });
 
-        function populateSelects(secili_birim, secili_personel) {
-            const birimler = DB.getBirimler();
-            let bOptions = '<option value="0">Tüm Birimler</option>';
+        async function renderIzinGosterge(birim_id) {
+            if (!birim_id) return;
+            const gosterge = await DB.getAyar('izin_gosterge_goster');
+            if (gosterge !== '1' && gosterge !== null) return;
+            
+            const bugun = new Date().toISOString().split('T')[0];
+            const yarin = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+            
+            const mesailer = await DB.getMesailer(birim_id, bugun, yarin);
+            const bugunIzinliler = mesailer.filter(m => m.tarih === bugun && m.durum === 'İzinli').map(m => m.ad_soyad);
+            const yarinIzinliler = mesailer.filter(m => m.tarih === yarin && m.durum === 'İzinli').map(m => m.ad_soyad);
+            
+            if (bugunIzinliler.length === 0 && yarinIzinliler.length === 0) return;
+            
+            const container = document.getElementById('izin-gosterge-container');
+            container.innerHTML = `
+            <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                    <div class="card h-100 shadow-sm border-0 border-top border-warning border-3">
+                        <div class="card-body py-3">
+                            <div class="d-flex align-items-center">
+                                <i class="fa-solid fa-umbrella-beach text-warning fs-4 me-3"></i>
+                                <div>
+                                    <div class="fw-bold text-warning">Bugün İzinli</div>
+                                    <div class="text-dark">${bugunIzinliler.length > 0 ? bugunIzinliler.join(', ') : '<span class="text-muted">İzinli personel yok</span>'}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card h-100 shadow-sm border-0 border-top border-info border-3">
+                        <div class="card-body py-3">
+                            <div class="d-flex align-items-center">
+                                <i class="fa-solid fa-calendar-day text-info fs-4 me-3"></i>
+                                <div>
+                                    <div class="fw-bold text-info">Yarın İzinli</div>
+                                    <div class="text-dark">${yarinIzinliler.length > 0 ? yarinIzinliler.join(', ') : '<span class="text-muted">İzin kullanacak personel yok</span>'}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        async function renderIzinPanosu(birim_id, baslangic, bitis, isMonthView) {
+            const container = document.getElementById('izin-panosu-container');
+            if (!isMonthView || !birim_id) { container.innerHTML = ''; return; }
+            
+            // Hafta sonu sayısını hesapla (izin hakki)
+            let izinHakki = 0;
+            let d = new Date(baslangic);
+            const bitD = new Date(bitis);
+            while (d <= bitD) {
+                const g = d.getDay();
+                if (g === 0 || g === 6) izinHakki++;
+                d.setDate(d.getDate() + 1);
+            }
+
+            const mesailer = await DB.getMesailer(birim_id, baslangic, bitis);
+            const personeller = await DB.getAktifPersoneller(birim_id, baslangic);
+            
+            const izinSayilari = {};
+            mesailer.filter(m => m.durum === 'İzinli').forEach(m => {
+                izinSayilari[m.personel_id] = (izinSayilari[m.personel_id] || 0) + 1;
+            });
+            
+            const eksikler = [], fazlalar = [], tamlar = [];
+            personeller.forEach(p => {
+                const kullanim = izinSayilari[p.id] || 0;
+                const obj = { ...p, kullanilan_izin: kullanim };
+                if (kullanim < izinHakki) eksikler.push(obj);
+                else if (kullanim > izinHakki) fazlalar.push(obj);
+                else tamlar.push(obj);
+            });
+            
+            container.innerHTML = `
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card shadow-sm border-0 border-start border-info border-4">
+                        <div class="card-header bg-white text-info fw-bold py-3 d-flex align-items-center">
+                            <i class="fa-solid fa-umbrella-beach me-2 fs-5"></i>
+                            <span>İzin Takip Panosu (Seçili Dönem İzin Hakkı: ${izinHakki} Gün)</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <div class="p-3 bg-light rounded border border-warning h-100">
+                                        <h6 class="text-warning fw-bold"><i class="fa-solid fa-circle-exclamation"></i> Eksik İzin Kullananlar</h6>
+                                        ${eksikler.length === 0 ? '<small class="text-muted">Eksik izni olan personel yok.</small>' :
+                                        `<ul class="list-unstyled mb-0 small">${eksikler.map(ep => `
+                                            <li class="mb-2 pb-1 border-bottom border-warning">
+                                                <i class="fa-solid fa-user text-muted"></i> ${ep.ad_soyad}
+                                                <span class="badge bg-warning text-dark float-end">${ep.kullanilan_izin} / ${izinHakki}</span>
+                                            </li>`).join('')}</ul>`}
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="p-3 bg-light rounded border border-danger h-100">
+                                        <h6 class="text-danger fw-bold"><i class="fa-solid fa-triangle-exclamation"></i> Fazla İzin Kullananlar</h6>
+                                        ${fazlalar.length === 0 ? '<small class="text-muted">İznini aşan personel yok.</small>' :
+                                        `<ul class="list-unstyled mb-0 small">${fazlalar.map(fp => `
+                                            <li class="mb-2 pb-1 border-bottom border-danger">
+                                                ${fp.ad_soyad}
+                                                <span class="badge bg-danger float-end">${fp.kullanilan_izin} / ${izinHakki}</span>
+                                            </li>`).join('')}</ul>`}
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="p-3 bg-light rounded border border-success h-100">
+                                        <h6 class="text-success fw-bold"><i class="fa-solid fa-check-circle"></i> İznini Tamamlayanlar</h6>
+                                        ${tamlar.length === 0 ? '<small class="text-muted">İznini tam kullanan personel yok.</small>' :
+                                        `<p class="mb-0 small text-muted"><strong>${tamlar.length} personel</strong> iznini tam olarak kullandı.</p>
+                                         <div class="mt-2 text-success small" style="max-height:80px;overflow-y:auto;">${tamlar.map(t => t.ad_soyad).join(', ')}</div>`}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        async function renderOtoDoldurBar(birim_id, baslangic, bitis, isMonthView, isAdmin, ayKey) {
+            const bar = document.getElementById('oto_doldurma_bar');
+            if (!bar || !isAdmin || !isMonthView || !birim_id) { if(bar) bar.innerHTML = ''; return; }
+            const mesailer = await DB.getMesailer(birim_id, baslangic, bitis);
+            const ayDoluMu = mesailer.length > 0;
+            let html = '';
+            if (!ayDoluMu) {
+                html += `<button class="btn btn-sm btn-warning" onclick="otoDoldur('${birim_id}','${baslangic}','${bitis}','${ayKey}')"><i class="fa-solid fa-wand-magic-sparkles"></i> Seçilen Ayı Otomatik Doldur</button>`;
+            }
+            const oturum = sessionStorage.getItem('oto_doldur_' + birim_id + '_' + ayKey);
+            if (oturum) {
+                html += `<button class="btn btn-sm btn-outline-danger" onclick="otoDoldurGeriAl('${birim_id}','${ayKey}')"><i class="fa-solid fa-rotate-left"></i> Doldurmayı Geri Al</button>`;
+            }
+            bar.innerHTML = html;
+        }
+
+        window.otoDoldur = async function(birim_id, baslangic, bitis, ayKey) {
+            if (!confirm('Seçilen ay, veri bulunan en yakın geçmiş ayın mesai/izin düzenine göre otomatik doldurulacak.\nİzin dengesi otomatik ayarlanacaktır.\nDevam etmek istiyor musunuz?')) return;
+            
+            // Son 6 ayda kayıt ara
+            const aylarTr = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+            const basD = new Date(baslangic);
+            let kaynak_bas = null, kaynak_bit = null, referansAyAdi = '';
+            
+            for (let geri = 1; geri <= 6; geri++) {
+                const c = new Date(basD.getFullYear(), basD.getMonth() - geri, 1);
+                const c_bas = c.toISOString().split('T')[0];
+                const c_bit = new Date(c.getFullYear(), c.getMonth() + 1, 0).toISOString().split('T')[0];
+                const kaynak = await DB.getMesailer(birim_id, c_bas, c_bit);
+                if (kaynak.length > 0) {
+                    kaynak_bas = c_bas; kaynak_bit = c_bit;
+                    referansAyAdi = aylarTr[c.getMonth()] + ' ' + c.getFullYear();
+                    break;
+                }
+            }
+            
+            if (!kaynak_bas) {
+                document.getElementById('mesaj-alani').innerHTML = '<div class="alert alert-warning">Son 6 ay içinde bu birim için referans alınacak kayıt bulunamadı.</div>';
+                return;
+            }
+
+            const kaynakMesailer = await DB.getMesailer(birim_id, kaynak_bas, kaynak_bit);
+            const personeller = await DB.getAktifPersoneller(birim_id, baslangic);
+            
+            // Hafta sonu sayısı (hedef ay izin hakki)
+            let izinHakkiHedef = 0;
+            let hd = new Date(baslangic);
+            const hBit = new Date(bitis);
+            while (hd <= hBit) { if (hd.getDay() === 0 || hd.getDay() === 6) izinHakkiHedef++; hd.setDate(hd.getDate() + 1); }
+            
+            const olusturulanIds = [];
+            for (const p of personeller) {
+                const pMesailer = kaynakMesailer.filter(m => m.personel_id == p.id);
+                if (pMesailer.length === 0) continue;
+                
+                const srcMap = {};
+                pMesailer.forEach(m => { srcMap[m.tarih] = m; });
+                
+                // Kaynak ayın hafta yapısı
+                const kaynakD = new Date(kaynak_bas);
+                const kaynakHafta = {};
+                const kaynakSon = {};
+                for (let k = new Date(kaynakD); k <= new Date(kaynak_bit); k.setDate(k.getDate() + 1)) {
+                    const kk = new Date(k);
+                    const n = kk.getDay() === 0 ? 7 : kk.getDay();
+                    const occ = Math.floor((kk.getDate() - 1) / 7) + 1;
+                    const tarihStr = kk.toISOString().split('T')[0].substring(0, 10);
+                    if (!kaynakHafta[n]) kaynakHafta[n] = {};
+                    kaynakHafta[n][occ] = tarihStr;
+                    kaynakSon[n] = tarihStr;
+                }
+                
+                const adaylar = [];
+                let dd = new Date(baslangic);
+                while (dd <= new Date(bitis)) {
+                    const ddd = new Date(dd);
+                    ddd.setMinutes(ddd.getMinutes() - ddd.getTimezoneOffset());
+                    const tarih = ddd.toISOString().split('T')[0];
+                    const n = ddd.getDay() === 0 ? 7 : ddd.getDay();
+                    const occ = Math.floor((ddd.getDate() - 1) / 7) + 1;
+                    const kaynakTarih = (kaynakHafta[n] && kaynakHafta[n][occ]) ? kaynakHafta[n][occ] : kaynakSon[n];
+                    if (kaynakTarih && srcMap[kaynakTarih]) {
+                        const s = srcMap[kaynakTarih];
+                        adaylar.push({ tarih, durum: s.durum, baslangic_saati: s.baslangic_saati, bitis_saati: s.bitis_saati, notlar: s.notlar });
+                    }
+                    dd.setDate(dd.getDate() + 1);
+                }
+                
+                // İzin dengele
+                let mevcut = adaylar.filter(a => a.durum === 'İzinli').length;
+                if (mevcut < izinHakkiHedef) {
+                    let fark = izinHakkiHedef - mevcut;
+                    for (const a of adaylar) {
+                        if (fark <= 0) break;
+                        const g = new Date(a.tarih).getDay();
+                        if (a.durum === 'Çalışıyor' && (g === 0 || g === 6)) {
+                            a.durum = 'İzinli'; a.baslangic_saati = null; a.bitis_saati = null; a.notlar = 'İZİNLİ'; fark--;
+                        }
+                    }
+                }
+                
+                for (const a of adaylar) {
+                    const result = await DB.addMesai({ personel_id: p.id, birim_id: parseInt(birim_id), tarih: a.tarih, baslangic_saati: a.baslangic_saati, bitis_saati: a.bitis_saati, durum: a.durum, notlar: a.notlar });
+                    if (result) olusturulanIds.push(result.id);
+                }
+            }
+            
+            if (olusturulanIds.length > 0) {
+                sessionStorage.setItem('oto_doldur_' + birim_id + '_' + ayKey, JSON.stringify(olusturulanIds));
+                document.getElementById('mesaj-alani').innerHTML = `<div class="alert alert-success">${referansAyAdi} ayı referans alınarak ${olusturulanIds.length} kayıt oluşturuldu.</div>`;
+            } else {
+                document.getElementById('mesaj-alani').innerHTML = '<div class="alert alert-warning">Oluşturulacak kayıt bulunamadı.</div>';
+            }
+            await applyFilter();
+        };
+
+        window.otoDoldurGeriAl = async function(birim_id, ayKey) {
+            if (!confirm('Bu ay için yapılan otomatik doldurma geri alınacak. Emin misiniz?')) return;
+            const idsJson = sessionStorage.getItem('oto_doldur_' + birim_id + '_' + ayKey);
+            if (!idsJson) { document.getElementById('mesaj-alani').innerHTML = '<div class="alert alert-warning">Geri alınacak kayıt bulunamadı.</div>'; return; }
+            const ids = JSON.parse(idsJson);
+            for (const id of ids) { await DB.deleteMesai(id); }
+            sessionStorage.removeItem('oto_doldur_' + birim_id + '_' + ayKey);
+            document.getElementById('mesaj-alani').innerHTML = `<div class="alert alert-success">${ids.length} kayıt silindi.</div>`;
+            await applyFilter();
+        };
+
+        async function populateSelects(secili_birim, secili_personel) {
+            const birimler = await DB.getBirimler();
+            let bOptions = '';
             let modalBOptions = '';
             birimler.forEach(b => {
                 bOptions += `<option value="${b.id}">${b.birim_adi}</option>`;
@@ -230,13 +615,14 @@
             });
             document.getElementById('filter_birim_id').innerHTML = bOptions;
             document.getElementById('modal_birim_id').innerHTML = modalBOptions;
-            document.getElementById('filter_birim_id').value = secili_birim;
+            if (secili_birim) document.getElementById('filter_birim_id').value = secili_birim;
 
-            updatePersonelSelect(secili_birim, secili_personel);
+            await updatePersonelSelect(secili_birim, secili_personel);
         }
 
-        function updatePersonelSelect(birim_id, secili_personel) {
-            const personeller = DB.getPersoneller(birim_id == 0 ? null : birim_id);
+        async function updatePersonelSelect(birim_id, secili_personel) {
+            const tarih = document.getElementById('filter_baslangic').value;
+            const personeller = birim_id > 0 ? await DB.getAktifPersoneller(birim_id, tarih) : [];
             let pOptions = '<option value="0">Tüm Personeller</option>';
             let modalPOptions = '<option value="">-- Personel Seçin --</option>';
             personeller.forEach(p => {
@@ -245,74 +631,179 @@
             });
             document.getElementById('filter_personel_id').innerHTML = pOptions;
             document.getElementById('modal_personel_id').innerHTML = modalPOptions;
-            document.getElementById('filter_personel_id').value = secili_personel;
+            if (secili_personel) document.getElementById('filter_personel_id').value = secili_personel;
+            
+            // Offcanvas personel listesi
+            await renderPersonelOffcanvas(birim_id, personeller, tarih, document.getElementById('filter_bitis').value);
         }
 
-        window.applyFilter = function() {
+        async function renderPersonelOffcanvas(birim_id, personeller, baslangic, bitis) {
+            const isAdmin = await DB.isAdmin();
+            const isMonthView = (() => {
+                const basD = new Date(baslangic);
+                const bitD = new Date(bitis);
+                return basD.getDate() === 1 && new Date(bitD.getFullYear(), bitD.getMonth() + 1, 0).getDate() === bitD.getDate();
+            })();
+            
+            let izinHakki = 0;
+            if (isMonthView) {
+                let d = new Date(baslangic);
+                const bD = new Date(bitis);
+                while (d <= bD) { if (d.getDay() === 0 || d.getDay() === 6) izinHakki++; d.setDate(d.getDate() + 1); }
+            }
+            
+            const mesailer = birim_id > 0 ? await DB.getMesailer(birim_id, baslangic, bitis) : [];
+            const izinSayilari = {};
+            mesailer.filter(m => m.durum === 'İzinli').forEach(m => {
+                izinSayilari[m.personel_id] = (izinSayilari[m.personel_id] || 0) + 1;
+            });
+            
+            const lista = document.getElementById('personel-listesi');
+            if (!lista) return;
+            if (personeller.length === 0) {
+                lista.innerHTML = '<li class="list-group-item text-muted">Bu birimde personel bulunmamaktadır.</li>';
+                return;
+            }
+            
+            let html = '';
+            personeller.forEach(p => {
+                const kullanim = izinSayilari[p.id] || 0;
+                let izinBadge = '';
+                if (isMonthView) {
+                    if (kullanim < izinHakki) izinBadge = `<span class="badge bg-warning text-dark ms-2" title="Eksik İzin">İzin: ${kullanim}/${izinHakki}</span>`;
+                    else if (kullanim > izinHakki) izinBadge = `<span class="badge bg-danger ms-2" title="Fazla İzin">İzin: ${kullanim}/${izinHakki}</span>`;
+                    else izinBadge = `<span class="badge bg-success ms-2" title="İzni Tamamlandı">İzin: ${kullanim}/${izinHakki}</span>`;
+                }
+                html += `
+                <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap">
+                    <div class="mb-1 mb-md-0 w-100 d-flex justify-content-between align-items-center">
+                        <strong>${p.ad_soyad}</strong>${izinBadge}
+                    </div>
+                    ${isAdmin ? `
+                    <div class="mt-2 w-100 text-end">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="openMesaiEkleModalFromOffcanvas(${p.id}, '${p.ad_soyad}', ${p.birim_id})">
+                            <i class="fa-solid fa-clock"></i> Mesai
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deletePersonelFromOffcanvas(${p.id}, '${p.ad_soyad}')">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>` : ''}
+                </li>`;
+            });
+            lista.innerHTML = html;
+        }
+
+        window.applyFilter = async function() {
             const b = document.getElementById('filter_birim_id').value;
             const p = document.getElementById('filter_personel_id').value;
             const start = document.getElementById('filter_baslangic').value;
             const end = document.getElementById('filter_bitis').value;
             
             const newUrl = window.location.pathname + `?birim_id=${b}&personel_id=${p}&baslangic=${start}&bitis=${end}`;
-            window.history.pushState({path:newUrl}, '', newUrl);
+            window.history.pushState({path: newUrl}, '', newUrl);
             
-            updatePersonelSelect(b, p);
-            renderCalendar(b, p, start, end);
+            await updatePersonelSelect(parseInt(b), parseInt(p));
+            
+            const basD = new Date(start);
+            const bitD = new Date(end);
+            const isMV = basD.getDate() === 1 && new Date(bitD.getFullYear(), bitD.getMonth() + 1, 0).getDate() === bitD.getDate();
+            const ak = start.substring(0, 7);
+            const isAdmin = await DB.isAdmin();
+            
+            await renderIzinGosterge(parseInt(b));
+            await renderIzinPanosu(parseInt(b), start, end, isMV);
+            await renderOtoDoldurBar(parseInt(b), start, end, isMV, isAdmin, ak);
+            await renderCalendar(parseInt(b), parseInt(p), start, end);
+            
+            // Ay secici guncelle
+            document.getElementById('ay_secici').value = start.substring(0, 7);
         }
 
-        window.setDateRange = function(type) {
+        window.setDateRange = async function(type) {
             const today = new Date();
-            const toLocalDateString = (d) => {
-                let dt = new Date(d);
-                dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset());
-                return dt.toISOString().split('T')[0];
-            };
+            const toLS = (d) => { let dt = new Date(d); dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset()); return dt.toISOString().split('T')[0]; };
 
             if (type === 'week') {
                 const dayOfWeek = today.getDay(); 
                 const diffToMonday = today.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-                const firstDay = new Date(today.setDate(diffToMonday));
-                const lastDay = new Date(firstDay);
-                lastDay.setDate(firstDay.getDate() + 6);
-                document.getElementById('filter_baslangic').value = toLocalDateString(firstDay);
-                document.getElementById('filter_bitis').value = toLocalDateString(lastDay);
+                const firstDay = new Date(today.getFullYear(), today.getMonth(), diffToMonday);
+                const lastDay = new Date(firstDay.getFullYear(), firstDay.getMonth(), firstDay.getDate() + 6);
+                document.getElementById('filter_baslangic').value = toLS(firstDay);
+                document.getElementById('filter_bitis').value = toLS(lastDay);
             } else if (type === 'month') {
                 const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
                 const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-                document.getElementById('filter_baslangic').value = toLocalDateString(firstDay);
-                document.getElementById('filter_bitis').value = toLocalDateString(lastDay);
+                document.getElementById('filter_baslangic').value = toLS(firstDay);
+                document.getElementById('filter_bitis').value = toLS(lastDay);
             }
+            await applyFilter();
+        }
+
+        window.setCustomMonth = function(val) {
+            if (!val) return;
+            const [yil, ay] = val.split('-').map(Number);
+            const firstDay = new Date(yil, ay - 1, 1);
+            const lastDay = new Date(yil, ay, 0);
+            const toLS = (d) => { let dt = new Date(d); dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset()); return dt.toISOString().split('T')[0]; };
+            document.getElementById('filter_baslangic').value = toLS(firstDay);
+            document.getElementById('filter_bitis').value = toLS(lastDay);
             applyFilter();
         }
 
-        window.openMesaiEkleModal = function() {
+        window.durumDegisti = async function() {
+            const durum = document.getElementById('modal_durum').value;
+            const yedekAlani = document.getElementById('yedek-alani');
+            if (durum === 'İzinli' || durum === 'Raporlu') {
+                yedekAlani.style.display = 'block';
+                const bas = document.getElementById('modal_bas_tarih').value;
+                const bit = document.getElementById('modal_bitis_tarih').value;
+                const birimId = document.getElementById('modal_birim_id').value;
+                if (bas && bit) {
+                    const uygunlar = await DB.getUygunPersoneller(birimId, bas, bit);
+                    let opts = '<option value="0">-- Yedek Personel Seçme --</option>';
+                    uygunlar.forEach(p => { opts += `<option value="${p.id}">${p.ad_soyad} (Joker)</option>`; });
+                    document.getElementById('modal_yedek_personel_id').innerHTML = opts;
+                }
+            } else {
+                yedekAlani.style.display = 'none';
+            }
+        }
+
+        window.openMesaiEkleModal = async function() {
             document.getElementById('mesaiForm').reset();
             document.getElementById('modal_mesai_id').value = '0';
             document.getElementById('mesaiModalTitle').innerHTML = 'Mesai Ekle';
+            document.getElementById('yedek-alani').style.display = 'none';
             
-            // Personel listesi yenileme
-            const personeller = DB.getPersoneller(document.getElementById('filter_birim_id').value == 0 ? null : document.getElementById('filter_birim_id').value);
+            const birimId = document.getElementById('filter_birim_id').value;
+            const tarih = document.getElementById('filter_baslangic').value;
+            const personeller = birimId > 0 ? await DB.getAktifPersoneller(parseInt(birimId), tarih) : await DB.getPersoneller();
             let opts = '<option value="">-- Personel Seçin --</option>';
             personeller.forEach(p => opts += `<option value="${p.id}">${p.ad_soyad}</option>`);
             document.getElementById('modal_personel_id').innerHTML = opts;
             
-            document.getElementById('modal_bas_tarih').value = document.getElementById('filter_baslangic').value;
-            document.getElementById('modal_bitis_tarih').value = document.getElementById('filter_baslangic').value;
+            document.getElementById('modal_bas_tarih').value = tarih;
+            document.getElementById('modal_bitis_tarih').value = tarih;
             document.getElementById('modal_baslangic').value = '08:30';
             document.getElementById('modal_bitis').value = '17:30';
-            document.getElementById('modal_bitis_tarih').parentElement.style.display = 'block';
+            document.getElementById('bit_tarih_col').style.display = 'block';
             
             bootstrap.Modal.getOrCreateInstance(document.getElementById('mesaiEkleModal')).show();
         }
+
+        window.openMesaiEkleModalFromOffcanvas = async function(pid, pAd, pbid) {
+            await openMesaiEkleModal();
+            document.getElementById('modal_personel_id').value = pid;
+            document.getElementById('modal_birim_id').value = pbid;
+        }
         
-        window.editMesai = function(id, pId, bId, tarih, bas, bit, durum, notlar) {
+        window.editMesai = async function(id, pId, bId, tarih, bas, bit, durum, notlar) {
             document.getElementById('mesaiForm').reset();
             document.getElementById('modal_mesai_id').value = id;
             document.getElementById('mesaiModalTitle').innerHTML = 'Mesai Düzenle';
+            document.getElementById('yedek-alani').style.display = 'none';
             
-            // Tüm personelleri yükle ki düzenleme yaparken adı görünsün
-            const personeller = DB.getPersoneller();
+            const personeller = await DB.getPersoneller();
             let opts = '';
             personeller.forEach(p => opts += `<option value="${p.id}">${p.ad_soyad}</option>`);
             document.getElementById('modal_personel_id').innerHTML = opts;
@@ -321,46 +812,79 @@
             document.getElementById('modal_birim_id').value = bId;
             document.getElementById('modal_bas_tarih').value = tarih;
             document.getElementById('modal_bitis_tarih').value = tarih;
-            document.getElementById('modal_baslangic').value = bas;
-            document.getElementById('modal_bitis').value = bit;
+            document.getElementById('modal_baslangic').value = bas ? bas.substring(0,5) : '';
+            document.getElementById('modal_bitis').value = bit ? bit.substring(0,5) : '';
             document.getElementById('modal_durum').value = durum;
-            document.getElementById('modal_notlar').value = notlar;
-            
-            document.getElementById('modal_bitis_tarih').parentElement.style.display = 'none';
+            document.getElementById('modal_notlar').value = notlar || '';
+            document.getElementById('bit_tarih_col').style.display = 'none';
             
             bootstrap.Modal.getOrCreateInstance(document.getElementById('mesaiEkleModal')).show();
         }
         
-        window.deleteMesai = function(id) {
+        window.deleteMesai = async function(id) {
             if(confirm('Bu kaydı silmek istediğinize emin misiniz?')) {
-                DB.deleteMesai(id);
-                applyFilter();
+                await DB.deleteMesai(id);
+                await applyFilter();
             }
         }
 
-        function renderCalendar(bId, pId, start, end) {
+        window.deletePersonelFromOffcanvas = async function(id, ad) {
+            if(confirm(`"${ad}" personelini ve tüm mesai kayıtlarını silmek istediğinize emin misiniz?`)) {
+                await DB.deletePersonel(id);
+                await applyFilter();
+            }
+        }
+
+        async function renderCalendar(bId, pId, start, end) {
             const container = document.getElementById('calendar-grid');
-            if (bId == 0 && pId == 0) {
-                container.innerHTML = '<div class="col-12"><div class="alert alert-info">Lütfen görüntülemek için bir birim veya personel seçin.</div></div>';
+            if (!bId || bId == 0) {
+                container.innerHTML = '<div class="col-12"><div class="alert alert-info">Lütfen görüntülemek için bir birim seçin.</div></div>';
                 return;
             }
+
+            container.innerHTML = '<div class="col-12"><div class="spinner-border text-primary my-3" role="status"></div></div>';
 
             const startDate = new Date(start);
             const endDate = new Date(end);
             
-            const mesailer = DB.getMesailer(bId, start, end);
-            const personeller = DB.getPersoneller(bId == 0 ? null : bId);
+            const mesailer = await DB.getMesailer(bId, start, end);
+            const personeller = await DB.getAktifPersoneller(bId, start);
+            const tatiller = await DB.getResmiTatiller();
+            const isAdmin = await DB.isAdmin();
             
-            // Eğer personel filtreli ise sadece onu tut
-            const targetPersonels = pId > 0 ? personeller.filter(p => p.id == pId) : personeller;
-
-            const gunler_tr = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+            const tatilMap = {};
+            tatiller.forEach(t => { tatilMap[t.gun_ay] = t.aciklama; });
+            
+            // Renk ayarlarini cek
+            const settings = {
+                calisiyor_bg: await DB.getAyar('renk_calisiyor_bg') || '#d1e7dd',
+                calisiyor_text: await DB.getAyar('renk_calisiyor_text') || '#0f5132',
+                izinli_bg: await DB.getAyar('renk_izinli_bg') || '#fff3cd',
+                izinli_text: await DB.getAyar('renk_izinli_text') || '#664d03',
+                raporlu_bg: await DB.getAyar('renk_raporlu_bg') || '#f8d7da',
+                raporlu_text: await DB.getAyar('renk_raporlu_text') || '#842029',
+                kayityok_bg: await DB.getAyar('renk_kayityok_bg') || '#f8f9fa',
+                kayityok_text: await DB.getAyar('renk_kayityok_text') || '#6c757d'
+            };
+            
+            // Tüm gösterilecek personeller (mesaisi olanlar da dahil)
+            const gosterilecekMap = {};
+            personeller.forEach(p => { gosterilecekMap[p.id] = p; });
+            mesailer.forEach(m => {
+                if (!gosterilecekMap[m.personel_id]) {
+                    gosterilecekMap[m.personel_id] = { id: m.personel_id, ad_soyad: m.ad_soyad, birim_id: m.sabit_birim_id };
+                }
+            });
+            let tumPersoneller = Object.values(gosterilecekMap).sort((a, b) => a.ad_soyad.localeCompare(b.ad_soyad, 'tr'));
+            if (pId > 0) tumPersoneller = tumPersoneller.filter(p => p.id == pId);
+            
+            const gunlerTr = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
             
             let html = '';
             
-            // Boşlukları doldur
-            let startDay = startDate.getDay(); // 0-6
-            let emptyDays = startDay === 0 ? 6 : startDay - 1; // Pazartesi 1 olsun diye ayarlıyoruz
+            // Başlangıç günü için boşluk doldur (Pazartesi bazlı)
+            let startDay = startDate.getDay();
+            let emptyDays = startDay === 0 ? 6 : startDay - 1;
             for (let i = 0; i < emptyDays; i++) {
                 html += '<div class="col mb-4 d-none d-lg-block"></div>';
             }
@@ -369,9 +893,13 @@
                 let dt = new Date(d);
                 dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset());
                 const dateStr = dt.toISOString().split('T')[0];
-                const dayName = gunler_tr[dt.getDay()];
+                const dayName = gunlerTr[dt.getDay()];
                 const isWeekend = (dt.getDay() === 0 || dt.getDay() === 6);
                 const headerClass = isWeekend ? 'bg-secondary' : 'bg-primary';
+                
+                // Resmi tatil kontrolu (MM-DD formatinda)
+                const mmdd = dateStr.substring(5).replace('-', '-'); // MM-DD
+                const tatilAdi = tatilMap[mmdd];
 
                 html += `
                 <div class="col mb-4">
@@ -379,28 +907,29 @@
                         <div class="card-header ${headerClass} text-white text-center py-2">
                             <h6 class="mb-0 fw-bold">${dayName}</h6>
                             <small style="opacity: 0.8;">${dt.toLocaleDateString('tr-TR')}</small>
+                            ${tatilAdi ? `<div><span class="badge bg-danger mt-1" style="font-size:0.65rem;">${tatilAdi}</span></div>` : ''}
                         </div>
                         <div class="card-body p-2" style="background-color: #f8f9fa;">`;
                 
-                targetPersonels.forEach(p => {
-                    const m = mesailer.find(ms => ms.personel_id == p.id && ms.tarih == dateStr);
+                tumPersoneller.forEach(p => {
+                    const m = mesailer.find(ms => ms.personel_id == p.id && ms.tarih === dateStr);
                     if (m) {
-                        let bgColor = '#d1e7dd', textColor = '#0f5132';
-                        if (m.durum == 'İzinli') { bgColor = '#fff3cd'; textColor = '#664d03'; }
-                        else if (m.durum == 'Raporlu') { bgColor = '#f8d7da'; textColor = '#842029'; }
-                        else if (m.durum == 'Tatil') { bgColor = '#f8f9fa'; textColor = '#6c757d'; }
+                        let bgColor = settings.calisiyor_bg, textColor = settings.calisiyor_text;
+                        if (m.durum === 'İzinli') { bgColor = settings.izinli_bg; textColor = settings.izinli_text; }
+                        else if (m.durum === 'Raporlu') { bgColor = settings.raporlu_bg; textColor = settings.raporlu_text; }
+                        else if (m.durum === 'Tatil') { bgColor = settings.kayityok_bg; textColor = settings.kayityok_text; }
                         
                         html += `
                         <div class="rounded p-2 mb-2 border position-relative" style="background-color: ${bgColor}; color: ${textColor}; border-color: ${textColor} !important; min-height: 85px;">
                             <div class="fw-bold mb-1" style="font-size: 0.85rem; line-height: 1.1;">${p.ad_soyad}</div>
                             <div style="font-size: 0.8rem;" class="fw-bold">${m.durum}</div>
-                            ${(m.baslangic_saati && m.bitis_saati && m.durum == 'Çalışıyor') ? `<div style="font-size: 0.75rem; margin-top: 3px; font-weight: 500;">${m.baslangic_saati.substring(0,5)} - ${m.bitis_saati.substring(0,5)}</div>` : ''}
+                            ${(m.baslangic_saati && m.bitis_saati && m.durum === 'Çalışıyor') ? `<div style="font-size: 0.75rem; margin-top: 3px; font-weight: 500;">${m.baslangic_saati.substring(0,5)} - ${m.bitis_saati.substring(0,5)}</div>` : ''}
                             ${m.notlar ? `<div style="font-size: 0.7rem; margin-top: 3px; opacity: 0.8; line-height: 1.1;">${m.notlar}</div>` : ''}
                             
-                            ${DB.isAdmin() ? `
+                            ${isAdmin ? `
                             <div class="position-absolute top-0 end-0 p-1" style="opacity: 0.6;">
                                 <i class="fa-solid fa-pen" style="font-size: 0.75rem; cursor: pointer;"
-                                    onclick="editMesai(${m.id}, ${m.personel_id}, ${m.birim_id}, '${m.tarih}', '${m.baslangic_saati || ''}', '${m.bitis_saati || ''}', '${m.durum}', '${m.notlar || ''}')"></i>
+                                    onclick="editMesai(${m.id}, ${m.personel_id}, ${m.birim_id}, '${m.tarih}', '${m.baslangic_saati || ''}', '${m.bitis_saati || ''}', '${m.durum}', '${(m.notlar || '').replace(/'/g, "\\'")}')"></i>
                             </div>
                             <div class="position-absolute bottom-0 end-0 p-1" style="opacity: 0.6;">
                                 <i class="fa-solid fa-trash" style="font-size: 0.75rem; cursor: pointer;" onclick="deleteMesai(${m.id})"></i>
@@ -408,9 +937,14 @@
                         </div>`;
                     } else {
                         html += `
-                        <div class="rounded p-2 mb-2 position-relative bg-white" style="color: #6c757d; border: 1px dashed #6c757d; min-height: 85px;">
+                        <div class="rounded p-2 mb-2 position-relative" style="background-color: ${settings.kayityok_bg}; color: ${settings.kayityok_text}; border: 1px dashed ${settings.kayityok_text}; min-height: 85px;">
                             <div class="fw-bold mb-1" style="font-size: 0.85rem; opacity: 0.7; line-height: 1.1;">${p.ad_soyad}</div>
                             <div style="font-size: 0.8rem; font-style: italic; opacity: 0.6;">Kayıt Yok</div>
+                            ${isAdmin ? `
+                            <div class="position-absolute top-0 end-0 p-1" style="opacity: 0.4;">
+                                <i class="fa-solid fa-plus" style="font-size: 0.75rem; cursor: pointer;"
+                                    onclick="quickAddMesai(${p.id}, ${p.birim_id || bId}, '${dateStr}')"></i>
+                            </div>` : ''}
                         </div>`;
                     }
                 });
@@ -421,6 +955,27 @@
                 </div>`;
             }
             container.innerHTML = html;
+        }
+
+        window.quickAddMesai = async function(pid, bid, tarih) {
+            document.getElementById('mesaiForm').reset();
+            document.getElementById('modal_mesai_id').value = '0';
+            document.getElementById('mesaiModalTitle').innerHTML = 'Mesai Ekle';
+            document.getElementById('yedek-alani').style.display = 'none';
+            
+            const personeller = await DB.getPersoneller();
+            let opts = '';
+            personeller.forEach(p => opts += `<option value="${p.id}">${p.ad_soyad}</option>`);
+            document.getElementById('modal_personel_id').innerHTML = opts;
+            document.getElementById('modal_personel_id').value = pid;
+            document.getElementById('modal_birim_id').value = bid;
+            document.getElementById('modal_bas_tarih').value = tarih;
+            document.getElementById('modal_bitis_tarih').value = tarih;
+            document.getElementById('modal_baslangic').value = '08:30';
+            document.getElementById('modal_bitis').value = '17:30';
+            document.getElementById('bit_tarih_col').style.display = 'none';
+            
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('mesaiEkleModal')).show();
         }
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>

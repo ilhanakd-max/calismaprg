@@ -15,12 +15,13 @@
 </head>
 <body>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="assets/js/db.js"></script>
     <script src="assets/js/app.js"></script>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            if (!DB.isAdmin()) {
+        document.addEventListener('appReady', async function() {
+            if (!(await DB.isAdmin())) {
                 document.getElementById('main-content').innerHTML = '<div class="alert alert-danger">Bu sayfaya erişim yetkiniz yoktur.</div>';
                 return;
             }
@@ -48,10 +49,83 @@
                                         <option value="0">Gizle</option>
                                     </select>
                                 </div>
+
+                                <hr>
+                                <h6 class="fw-bold mb-3 mt-4 text-secondary">Renk Ayarları</h6>
+                                <div class="row mb-3">
+                                    <div class="col-md-3">
+                                        <label class="form-label fw-bold" style="color: #0f5132;">Çalışıyor (Arkaplan)</label>
+                                        <input type="color" class="form-control form-control-color w-100" id="ayar_renk_calisiyor_bg" value="#d1e7dd">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label fw-bold" style="color: #0f5132;">Çalışıyor (Yazı)</label>
+                                        <input type="color" class="form-control form-control-color w-100" id="ayar_renk_calisiyor_text" value="#0f5132">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label fw-bold" style="color: #664d03;">İzinli (Arkaplan)</label>
+                                        <input type="color" class="form-control form-control-color w-100" id="ayar_renk_izinli_bg" value="#fff3cd">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label fw-bold" style="color: #664d03;">İzinli (Yazı)</label>
+                                        <input type="color" class="form-control form-control-color w-100" id="ayar_renk_izinli_text" value="#664d03">
+                                    </div>
+                                </div>
+                                <div class="row mb-4">
+                                    <div class="col-md-3">
+                                        <label class="form-label fw-bold" style="color: #842029;">Raporlu (Arkaplan)</label>
+                                        <input type="color" class="form-control form-control-color w-100" id="ayar_renk_raporlu_bg" value="#f8d7da">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label fw-bold" style="color: #842029;">Raporlu (Yazı)</label>
+                                        <input type="color" class="form-control form-control-color w-100" id="ayar_renk_raporlu_text" value="#842029">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label fw-bold" style="color: #6c757d;">Kayıt Yok (Arkaplan)</label>
+                                        <input type="color" class="form-control form-control-color w-100" id="ayar_renk_kayityok_bg" value="#f8f9fa">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label fw-bold" style="color: #6c757d;">Kayıt Yok (Yazı)</label>
+                                        <input type="color" class="form-control form-control-color w-100" id="ayar_renk_kayityok_text" value="#6c757d">
+                                    </div>
+                                </div>
+
                                 <div class="text-end">
                                     <button type="submit" class="btn btn-primary"><i class="fa-solid fa-save"></i> Ayarları Kaydet</button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+
+                    <!-- Yönetici Hesapları -->
+                    <div class="card mb-4 shadow-sm border-0 border-top border-warning border-3">
+                        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0 fw-bold text-warning"><i class="fa-solid fa-user-shield me-2"></i> Yönetici Hesapları</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info">
+                                <i class="fa-solid fa-circle-info me-2"></i>
+                                <strong>Yönetici Bilgisi:</strong> Bu sistemde yönetici hesapları <strong>Supabase Authentication</strong> üzerinden yönetilmektedir.
+                                Yeni yönetici eklemek veya mevcut hesapları düzenlemek için:
+                                <a href="https://supabase.com/dashboard" target="_blank" class="btn btn-sm btn-outline-primary ms-2">
+                                    <i class="fa-solid fa-external-link-alt me-1"></i> Supabase Paneline Git
+                                </a>
+                            </div>
+                            <div class="mt-3">
+                                <h6 class="fw-bold">Şu Anda Giriş Yapan Hesap:</h6>
+                                <div class="d-flex align-items-center">
+                                    <span class="badge bg-primary fs-6 me-2"><i class="fa-solid fa-user-circle me-1"></i><span id="admin-email-goster">Yükleniyor...</span></span>
+                                    <span class="text-muted small">Çıkış yapmak için üst menüden "Çıkış Yap" butonunu kullanın.</span>
+                                </div>
+                            </div>
+                            <div class="mt-3 p-3 bg-light rounded">
+                                <h6 class="fw-bold text-muted"><i class="fa-solid fa-info-circle me-1"></i> Yeni Yönetici Eklemek İçin:</h6>
+                                <ol class="mb-0 small text-muted">
+                                    <li>Supabase paneline gidin ve projenizi açın.</li>
+                                    <li>Sol menüden <strong>Authentication → Users</strong> seçeneğine tıklayın.</li>
+                                    <li><strong>"Add User"</strong> butonuna tıklayın.</li>
+                                    <li>E-posta ve şifre belirleyin, <em>"Auto Confirm User"</em> seçeneğini işaretleyin ve kaydedin.</li>
+                                </ol>
+                            </div>
                         </div>
                     </div>
 
@@ -74,6 +148,7 @@
                                         </tr>
                                     </thead>
                                     <tbody id="tatiller-table-body">
+                                        <tr><td colspan="3"><div class="spinner-border text-danger my-3" role="status"></div></td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -115,16 +190,39 @@
             document.getElementById('main-content').insertAdjacentHTML('beforeend', html);
             
             // Ayarları yükle
-            document.getElementById('ayar_site_baslik').value = DB.getAyar('site_baslik') || 'Dış Birim Mesai Takip Sistemi';
-            document.getElementById('ayar_izin_gosterge_goster').value = DB.getAyar('izin_gosterge_goster') || '1';
+            document.getElementById('ayar_site_baslik').value = await DB.getAyar('site_baslik') || 'Dış Birim Mesai Takip Sistemi';
+            document.getElementById('ayar_izin_gosterge_goster').value = await DB.getAyar('izin_gosterge_goster') || '1';
             
-            renderTatiller();
+            document.getElementById('ayar_renk_calisiyor_bg').value = await DB.getAyar('renk_calisiyor_bg') || '#d1e7dd';
+            document.getElementById('ayar_renk_calisiyor_text').value = await DB.getAyar('renk_calisiyor_text') || '#0f5132';
+            document.getElementById('ayar_renk_izinli_bg').value = await DB.getAyar('renk_izinli_bg') || '#fff3cd';
+            document.getElementById('ayar_renk_izinli_text').value = await DB.getAyar('renk_izinli_text') || '#664d03';
+            document.getElementById('ayar_renk_raporlu_bg').value = await DB.getAyar('renk_raporlu_bg') || '#f8d7da';
+            document.getElementById('ayar_renk_raporlu_text').value = await DB.getAyar('renk_raporlu_text') || '#842029';
+            document.getElementById('ayar_renk_kayityok_bg').value = await DB.getAyar('renk_kayityok_bg') || '#f8f9fa';
+            document.getElementById('ayar_renk_kayityok_text').value = await DB.getAyar('renk_kayityok_text') || '#6c757d';
+            
+            // Admin email goster
+            const kullaniciAdi = await DB.getKullaniciAdi();
+            const emailSpan = document.getElementById('admin-email-goster');
+            if (emailSpan) emailSpan.textContent = kullaniciAdi || 'Admin';
+            
+            await renderTatiller();
 
             // Ayarları kaydet
-            document.getElementById('formAyarlar').addEventListener('submit', function(e) {
+            document.getElementById('formAyarlar').addEventListener('submit', async function(e) {
                 e.preventDefault();
-                DB.setAyar('site_baslik', document.getElementById('ayar_site_baslik').value);
-                DB.setAyar('izin_gosterge_goster', document.getElementById('ayar_izin_gosterge_goster').value);
+                await DB.setAyar('site_baslik', document.getElementById('ayar_site_baslik').value);
+                await DB.setAyar('izin_gosterge_goster', document.getElementById('ayar_izin_gosterge_goster').value);
+                
+                await DB.setAyar('renk_calisiyor_bg', document.getElementById('ayar_renk_calisiyor_bg').value);
+                await DB.setAyar('renk_calisiyor_text', document.getElementById('ayar_renk_calisiyor_text').value);
+                await DB.setAyar('renk_izinli_bg', document.getElementById('ayar_renk_izinli_bg').value);
+                await DB.setAyar('renk_izinli_text', document.getElementById('ayar_renk_izinli_text').value);
+                await DB.setAyar('renk_raporlu_bg', document.getElementById('ayar_renk_raporlu_bg').value);
+                await DB.setAyar('renk_raporlu_text', document.getElementById('ayar_renk_raporlu_text').value);
+                await DB.setAyar('renk_kayityok_bg', document.getElementById('ayar_renk_kayityok_bg').value);
+                await DB.setAyar('renk_kayityok_text', document.getElementById('ayar_renk_kayityok_text').value);
                 
                 document.getElementById('mesaj-alani').innerHTML = '<div class="alert alert-success alert-dismissible fade show">Ayarlar başarıyla kaydedildi.<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>';
                 
@@ -134,28 +232,28 @@
             });
 
             // Tatil Ekle
-            document.getElementById('formAddTatil').addEventListener('submit', function(e) {
+            document.getElementById('formAddTatil').addEventListener('submit', async function(e) {
                 e.preventDefault();
                 const gun_ay = document.getElementById('tatil_gun_ay').value;
                 const aciklama = document.getElementById('tatil_aciklama').value;
                 
-                DB.addResmiTatil(gun_ay, aciklama);
+                await DB.addResmiTatil(gun_ay, aciklama);
                 
                 bootstrap.Modal.getInstance(document.getElementById('tatilEkleModal')).hide();
                 document.getElementById('formAddTatil').reset();
-                renderTatiller();
+                await renderTatiller();
             });
         });
 
-        window.deleteTatil = function(id) {
+        window.deleteTatil = async function(id) {
             if(confirm('Bu tatili silmek istediğinize emin misiniz?')) {
-                DB.deleteResmiTatil(id);
-                renderTatiller();
+                await DB.deleteResmiTatil(id);
+                await renderTatiller();
             }
         }
 
-        function renderTatiller() {
-            const tatiller = DB.getResmiTatiller();
+        async function renderTatiller() {
+            const tatiller = await DB.getResmiTatiller();
             const tbody = document.getElementById('tatiller-table-body');
             
             if (tatiller.length === 0) {
@@ -164,7 +262,8 @@
             }
 
             let html = '';
-            tatiller.forEach((t) => {
+            for (let i = 0; i < tatiller.length; i++) {
+                const t = tatiller[i];
                 html += `
                 <tr>
                     <td class="ps-3"><strong>${t.gun_ay}</strong></td>
@@ -175,7 +274,7 @@
                         </button>
                     </td>
                 </tr>`;
-            });
+            }
             tbody.innerHTML = html;
         }
     </script>

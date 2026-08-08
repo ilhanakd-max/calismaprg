@@ -38,10 +38,10 @@
 
             <form id="loginForm">
                 <div class="mb-3">
-                    <label class="form-label fw-bold">Kullanıcı Adı</label>
+                    <label class="form-label fw-bold">E-posta</label>
                     <div class="input-group">
-                        <span class="input-group-text bg-light border-end-0"><i class="fa-solid fa-user text-muted"></i></span>
-                        <input type="text" class="form-control border-start-0 ps-0" id="kullanici_adi" placeholder="admin" required>
+                        <span class="input-group-text bg-light border-end-0"><i class="fa-solid fa-envelope text-muted"></i></span>
+                        <input type="email" class="form-control border-start-0 ps-0" id="kullanici_adi" placeholder="admin@ornek.com" required>
                     </div>
                 </div>
                 
@@ -64,20 +64,30 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="assets/js/db.js"></script>
     <script>
-        document.getElementById('loginForm').addEventListener('submit', function(e) {
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            // Yerel simülasyon olduğu için herhangi bir şifre kabul edilecek.
-            // Sadece görsel deneyim için eklendi.
-            sessionStorage.setItem('is_logged_in', 'true');
-            window.location.href = 'index.html';
+            const email = document.getElementById('kullanici_adi').value;
+            const sifre = document.getElementById('sifre').value;
+
+            document.getElementById('hata-alani').innerHTML = '<div class="alert alert-info">Giriş yapılıyor...</div>';
+
+            const loginResult = await DB.login(email, sifre);
+            if (loginResult && loginResult.success) {
+                window.location.href = 'index.html';
+            } else {
+                document.getElementById('hata-alani').innerHTML = '<div class="alert alert-danger">Giriş başarısız. Lütfen bilgilerinizi kontrol edin.</div>';
+            }
         });
 
         // Eğer zaten giriş yapılmışsa ana sayfaya yönlendir
-        if (sessionStorage.getItem('is_logged_in') === 'true') {
-            window.location.href = 'index.html';
-        }
+        (async function() {
+            if (await DB.isAdmin()) {
+                window.location.href = 'index.html';
+            }
+        })();
     </script>
 </body>
 </html>

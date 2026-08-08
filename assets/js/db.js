@@ -1,275 +1,251 @@
-// db.js - LocalStorage tabanlı veritabanı simülatörü
+// db.js - Supabase entegrasyonu (Asenkron)
 
-const DB_KEY = 'CalismaProgramiDB';
+const SUPABASE_URL = 'https://ziwxpbyvbqhqaxesxfyh.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_4XuviyAoFDiasa7CI9Ikmw_sstERSlb';
 
-// Veritabanını başlat
-function initDB() {
-    let data = localStorage.getItem(DB_KEY);
-    if (!data) {
-        data = {
-            birimler: [],
-            personeller: [],
-            mesailer: [],
-            duyurular: [],
-            ayarlar: [
-                { ayar_anahtar: 'site_baslik', ayar_deger: 'Dış Birim Mesai Takip Sistemi' },
-                { ayar_anahtar: 'izin_gosterge_goster', ayar_deger: '1' }
-            ],
-            resmi_tatiller: [
-                { id: 1, gun_ay: '01-01', aciklama: 'Yılbaşı' },
-                { id: 2, gun_ay: '04-23', aciklama: 'Ulusal Egemenlik ve Çocuk Bayramı' },
-                { id: 3, gun_ay: '05-01', aciklama: 'Emek ve Dayanışma Günü' },
-                { id: 4, gun_ay: '05-19', aciklama: "Atatürk'ü Anma, Gençlik ve Spor Bayramı" },
-                { id: 5, gun_ay: '07-15', aciklama: 'Demokrasi ve Milli Birlik Günü' },
-                { id: 6, gun_ay: '08-30', aciklama: 'Zafer Bayramı' },
-                { id: 7, gun_ay: '10-29', aciklama: 'Cumhuriyet Bayramı' }
-            ],
-            gorev_tamamlayanlar: [],
-            oturum: {
-                is_admin: true, // Yerel kullanım olduğu için varsayılan olarak admin
-                kullanici_adi: 'Admin'
-            }
-        };
-        saveDB(data);
-    }
-    return getDB();
-}
-
-function getDB() {
-    const data = localStorage.getItem(DB_KEY);
-    return data ? JSON.parse(data) : null;
-}
-
-function saveDB(data) {
-    localStorage.setItem(DB_KEY, JSON.stringify(data));
-}
-
-// Genel ID oluşturucu (Auto Increment mantığı)
-function generateId(tableArray) {
-    if (!tableArray || tableArray.length === 0) return 1;
-    return Math.max(...tableArray.map(item => item.id)) + 1;
-}
+// Supabase kutuphanesi HTML dosyalarinda CDN uzerinden yuklenmelidir.
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const DB = {
-    // --- BİRİMLER ---
-    getBirimler: function() {
-        return getDB().birimler;
+    // --- BIRIMLER ---
+    getBirimler: async function() {
+        const { data, error } = await supabaseClient.from('birimler').select('*').order('id', { ascending: true });
+        if (error) { console.error('getBirimler Hatasi:', error); return []; }
+        return data || [];
     },
-    getBirim: function(id) {
-        return getDB().birimler.find(b => b.id == id);
+    getBirim: async function(id) {
+        const { data, error } = await supabaseClient.from('birimler').select('*').eq('id', id).single();
+        if (error) return null;
+        return data;
     },
-    addBirim: function(birim_adi) {
-        let db = getDB();
-        let newBirim = { id: generateId(db.birimler), birim_adi: birim_adi };
-        db.birimler.push(newBirim);
-        saveDB(db);
-        return newBirim;
+    addBirim: async function(birim_adi) {
+        const { data, error } = await supabaseClient.from('birimler').insert([{ birim_adi }]).select();
+        if (error) { console.error(error); return null; }
+        return data[0];
     },
-    updateBirim: function(id, birim_adi) {
-        let db = getDB();
-        let index = db.birimler.findIndex(b => b.id == id);
-        if (index !== -1) {
-            db.birimler[index].birim_adi = birim_adi;
-            saveDB(db);
-            return true;
+    updateBirim: async function(id, birim_adi) {
+        const { error } = await supabaseClient.from('birimler').update({ birim_adi }).eq('id', id);
+        return !error;
+    },
+    deleteBirim: async function(id) {
+        const { error } = await supabaseClient.from('birimler').delete().eq('id', id);
+        if(!error) {
+            await supabaseClient.from('personeller').update({ birim_id: 0 }).eq('birim_id', id);
+            await supabaseClient.from('mesailer').delete().eq('birim_id', id);
         }
-        return false;
+        return !error;
     },
-    deleteBirim: function(id) {
-        let db = getDB();
-        db.birimler = db.birimler.filter(b => b.id != id);
-        db.personeller.forEach(p => { if (p.birim_id == id) p.birim_id = 0; });
-        db.mesailer = db.mesailer.filter(m => m.birim_id != id);
-        saveDB(db);
-    },
-    getBirimPersonelSayisi: function(birim_id) {
-        let db = getDB();
-        return db.personeller.filter(p => p.birim_id == birim_id && (!p.cikis_tarihi || new Date(p.cikis_tarihi) >= new Date())).length;
+    getBirimPersonelSayisi: async function(birim_id) {
+        const simdi = new Date().toISOString().split('T')[0];
+        const { count, error } = await supabaseClient
+            .from('personeller')
+            .select('*', { count: 'exact', head: true })
+            .eq('birim_id', birim_id)
+            .or(`cikis_tarihi.is.null,cikis_tarihi.gte.${simdi}`);
+        return error ? 0 : (count || 0);
     },
 
     // --- PERSONELLER ---
-    getPersoneller: function(birim_id = null) {
-        let db = getDB();
-        let list = db.personeller;
-        if (birim_id !== null) {
-            list = list.filter(p => p.birim_id == birim_id);
+    getPersoneller: async function(birim_id = null) {
+        let query = supabaseClient.from('personeller').select('*').order('ad_soyad', { ascending: true });
+        if (birim_id !== null && birim_id !== 0) {
+            query = query.eq('birim_id', birim_id);
         }
-        return list;
+        const { data, error } = await query;
+        if (error) { console.error(error); return []; }
+        return data || [];
     },
-    getAktifPersoneller: function(birim_id = null, tarih = new Date().toISOString().split('T')[0]) {
-        return this.getPersoneller(birim_id).filter(p => !p.cikis_tarihi || p.cikis_tarihi >= tarih);
-    },
-    getPersonel: function(id) {
-        return getDB().personeller.find(p => p.id == id);
-    },
-    addPersonel: function(data) {
-        let db = getDB();
-        let newP = { 
-            id: generateId(db.personeller),
-            ...data
-        };
-        db.personeller.push(newP);
-        saveDB(db);
-        return newP;
-    },
-    updatePersonel: function(id, data) {
-        let db = getDB();
-        let index = db.personeller.findIndex(p => p.id == id);
-        if (index !== -1) {
-            db.personeller[index] = { ...db.personeller[index], ...data };
-            saveDB(db);
-            return true;
+    getAktifPersoneller: async function(birim_id = null, tarih = new Date().toISOString().split('T')[0]) {
+        let query = supabaseClient.from('personeller')
+            .select('*')
+            .or(`cikis_tarihi.is.null,cikis_tarihi.gte.${tarih}`)
+            .order('ad_soyad', { ascending: true });
+        if (birim_id !== null && birim_id !== 0) {
+            query = query.eq('birim_id', birim_id);
         }
-        return false;
+        const { data, error } = await query;
+        return error ? [] : (data || []);
     },
-    deletePersonel: function(id) {
-        let db = getDB();
-        db.personeller = db.personeller.filter(p => p.id != id);
-        db.mesailer = db.mesailer.filter(m => m.personel_id != id);
-        saveDB(db);
+    getPersonel: async function(id) {
+        const { data, error } = await supabaseClient.from('personeller').select('*').eq('id', id).single();
+        return error ? null : data;
+    },
+    addPersonel: async function(personelData) {
+        const { data, error } = await supabaseClient.from('personeller').insert([personelData]).select();
+        if (error) { console.error(error); return null; }
+        return data[0];
+    },
+    updatePersonel: async function(id, personelData) {
+        const { error } = await supabaseClient.from('personeller').update(personelData).eq('id', id);
+        return !error;
+    },
+    deletePersonel: async function(id) {
+        const { error } = await supabaseClient.from('personeller').delete().eq('id', id);
+        if(!error) {
+            await supabaseClient.from('mesailer').delete().eq('personel_id', id);
+        }
+        return !error;
+    },
+    getUygunPersoneller: async function(birim_id, bas_tarih, bit_tarih) {
+        // Joker (izin_degistirici=1) olan personelleri getir
+        const { data: jokerler, error } = await supabaseClient
+            .from('personeller').select('*').eq('izin_degistirici', 1)
+            .order('ad_soyad', { ascending: true });
+        if (error || !jokerler) return [];
+        const uygunlar = [];
+        for (const p of jokerler) {
+            const { data: mesgul } = await supabaseClient.from('mesailer').select('id')
+                .eq('personel_id', p.id).gte('tarih', bas_tarih).lte('tarih', bit_tarih).limit(1);
+            if (!mesgul || mesgul.length === 0) uygunlar.push(p);
+        }
+        return uygunlar;
     },
 
-    // --- MESAİLER ---
-    getMesailer: function(birim_id, baslangicTarihi, bitisTarihi) {
-        let db = getDB();
-        return db.mesailer.filter(m => {
-            let matchBirim = (m.birim_id == birim_id);
-            let matchTarih = m.tarih >= baslangicTarihi && m.tarih <= bitisTarihi;
-            return matchBirim && matchTarih;
-        }).map(m => {
-            let p = db.personeller.find(pers => pers.id == m.personel_id);
-            return {
-                ...m,
-                ad_soyad: p ? p.ad_soyad : 'Bilinmeyen Personel',
-                sabit_birim_id: p ? p.birim_id : 0
-            };
-        });
+    // --- MESAILER ---
+    getMesailer: async function(birim_id, baslangicTarihi, bitisTarihi) {
+        const { data: mesailer, error } = await supabaseClient
+            .from('mesailer')
+            .select('*, personeller (ad_soyad, birim_id)')
+            .eq('birim_id', birim_id)
+            .gte('tarih', baslangicTarihi)
+            .lte('tarih', bitisTarihi);
+
+        if (error) { console.error(error); return []; }
+        return (mesailer || []).map(m => ({
+            ...m,
+            ad_soyad: m.personeller ? m.personeller.ad_soyad : 'Bilinmeyen Personel',
+            sabit_birim_id: m.personeller ? m.personeller.birim_id : 0
+        }));
     },
-    addMesai: function(data) {
-        let db = getDB();
-        let newM = { id: generateId(db.mesailer), ...data };
-        db.mesailer.push(newM);
-        saveDB(db);
-        return newM;
+    getMesailerAll: async function(baslangicTarihi, bitisTarihi, birim_id = null, personel_id = null, durum = null) {
+        let query = supabaseClient
+            .from('mesailer')
+            .select('*, personeller (ad_soyad, birim_id), birimler (birim_adi)')
+            .gte('tarih', baslangicTarihi)
+            .lte('tarih', bitisTarihi)
+            .order('tarih', { ascending: true });
+        if (birim_id && birim_id > 0) query = query.eq('birim_id', birim_id);
+        if (personel_id && personel_id > 0) query = query.eq('personel_id', personel_id);
+        if (durum && durum !== '') query = query.eq('durum', durum);
+        const { data, error } = await query;
+        if (error) { console.error(error); return []; }
+        return (data || []).map(m => ({
+            ...m,
+            ad_soyad: m.personeller ? m.personeller.ad_soyad : '',
+            birim_adi: m.birimler ? m.birimler.birim_adi : ''
+        }));
     },
-    updateMesai: function(id, data) {
-        let db = getDB();
-        let index = db.mesailer.findIndex(m => m.id == id);
-        if (index !== -1) {
-            db.mesailer[index] = { ...db.mesailer[index], ...data };
-            saveDB(db);
-            return true;
-        }
-        return false;
+    addMesai: async function(mesaiData) {
+        const { data, error } = await supabaseClient.from('mesailer').insert([mesaiData]).select();
+        if (error) { console.error(error); return null; }
+        return data[0];
     },
-    deleteMesai: function(id) {
-        let db = getDB();
-        db.mesailer = db.mesailer.filter(m => m.id != id);
-        saveDB(db);
+    updateMesai: async function(id, mesaiData) {
+        const { error } = await supabaseClient.from('mesailer').update(mesaiData).eq('id', id);
+        return !error;
+    },
+    deleteMesai: async function(id) {
+        const { error } = await supabaseClient.from('mesailer').delete().eq('id', id);
+        return !error;
     },
     
-    // --- DUYURULAR / GÖREVLER ---
-    getAktifDuyurular: function(birim_id = 0) {
-        let db = getDB();
-        let simdi = new Date().toISOString();
-        return db.duyurular.filter(d => {
-            let aktifMi = d.aktif == 1;
-            let zamanUygun = (!d.baslangic_tarihi || d.baslangic_tarihi <= simdi) && (!d.bitis_tarihi || d.bitis_tarihi >= simdi);
-            let birimUygun = (d.birim_id == 0 || d.birim_id == birim_id || birim_id == 0);
-            return aktifMi && zamanUygun && birimUygun;
-        }).sort((a,b) => new Date(b.olusturulma_tarihi) - new Date(a.olusturulma_tarihi));
+    // --- DUYURULAR / GOREVLER ---
+    getAktifDuyurular: async function(birim_id = 0) {
+        const simdi = new Date().toISOString();
+        let query = supabaseClient.from('duyurular')
+            .select('*').eq('aktif', 1)
+            .or(`baslangic_tarihi.is.null,baslangic_tarihi.lte.${simdi}`)
+            .or(`bitis_tarihi.is.null,bitis_tarihi.gte.${simdi}`)
+            .order('olusturulma_tarihi', { ascending: false });
+
+        const { data, error } = await query;
+        if (error) return [];
+        return (data || []).filter(d => d.birim_id == 0 || d.birim_id == birim_id || birim_id == 0);
     },
-    getDuyurularAdmin: function() {
-        return getDB().duyurular.sort((a,b) => new Date(b.olusturulma_tarihi) - new Date(a.olusturulma_tarihi));
+    getDuyurularAdmin: async function() {
+        const { data, error } = await supabaseClient.from('duyurular').select('*').order('olusturulma_tarihi', { ascending: false });
+        return error ? [] : (data || []);
     },
-    addDuyuru: function(data) {
-        let db = getDB();
-        let newD = { id: generateId(db.duyurular), olusturulma_tarihi: new Date().toISOString(), ...data };
-        db.duyurular.push(newD);
-        saveDB(db);
-        return newD;
+    addDuyuru: async function(duyuruData) {
+        const { data, error } = await supabaseClient.from('duyurular').insert([duyuruData]).select();
+        if (error) { console.error(error); return null; }
+        return data[0];
     },
-    updateDuyuru: function(id, data) {
-        let db = getDB();
-        let index = db.duyurular.findIndex(d => d.id == id);
-        if (index !== -1) {
-            db.duyurular[index] = { ...db.duyurular[index], ...data };
-            saveDB(db);
-            return true;
+    updateDuyuru: async function(id, duyuruData) {
+        const { error } = await supabaseClient.from('duyurular').update(duyuruData).eq('id', id);
+        return !error;
+    },
+    deleteDuyuru: async function(id) {
+        const { error } = await supabaseClient.from('duyurular').delete().eq('id', id);
+        if(!error) {
+            await supabaseClient.from('gorev_tamamlayanlar').delete().eq('gorev_id', id);
         }
-        return false;
+        return !error;
     },
-    deleteDuyuru: function(id) {
-        let db = getDB();
-        db.duyurular = db.duyurular.filter(d => d.id != id);
-        db.gorev_tamamlayanlar = db.gorev_tamamlayanlar.filter(g => g.gorev_id != id);
-        saveDB(db);
+    tamamlaGorev: async function(gorev_id, isim) {
+        await supabaseClient.from('gorev_tamamlayanlar').insert([{ gorev_id, isim }]);
     },
-    tamamlaGorev: function(gorev_id, isim) {
-        let db = getDB();
-        db.gorev_tamamlayanlar.push({
-            id: generateId(db.gorev_tamamlayanlar),
-            gorev_id: gorev_id,
-            isim: isim,
-            tamamlanma_tarihi: new Date().toISOString()
-        });
-        saveDB(db);
-    },
-    getGorevTamamlayanlar: function(gorev_id) {
-        return getDB().gorev_tamamlayanlar.filter(g => g.gorev_id == gorev_id);
+    getGorevTamamlayanlar: async function(gorev_id) {
+        const { data, error } = await supabaseClient.from('gorev_tamamlayanlar').select('*').eq('gorev_id', gorev_id).order('tamamlanma_tarihi', { ascending: true });
+        return error ? [] : (data || []);
     },
 
     // --- AYARLAR ---
-    getAyar: function(anahtar) {
-        let db = getDB();
-        let a = db.ayarlar.find(ay => ay.ayar_anahtar === anahtar);
-        return a ? a.ayar_deger : null;
+    getAyar: async function(anahtar) {
+        const { data, error } = await supabaseClient.from('ayarlar').select('ayar_deger').eq('ayar_anahtar', anahtar).single();
+        return (error || !data) ? null : data.ayar_deger;
     },
-    setAyar: function(anahtar, deger) {
-        let db = getDB();
-        let index = db.ayarlar.findIndex(ay => ay.ayar_anahtar === anahtar);
-        if (index !== -1) {
-            db.ayarlar[index].ayar_deger = deger;
+    setAyar: async function(anahtar, deger) {
+        const { data } = await supabaseClient.from('ayarlar').select('id').eq('ayar_anahtar', anahtar).single();
+        if (data) {
+            await supabaseClient.from('ayarlar').update({ ayar_deger: deger }).eq('ayar_anahtar', anahtar);
         } else {
-            db.ayarlar.push({ ayar_anahtar: anahtar, ayar_deger: deger });
+            await supabaseClient.from('ayarlar').insert([{ ayar_anahtar: anahtar, ayar_deger: deger }]);
         }
-        saveDB(db);
     },
-    getAyarlar: function() {
-        return getDB().ayarlar;
+    getAyarlar: async function() {
+        const { data, error } = await supabaseClient.from('ayarlar').select('*');
+        return error ? [] : (data || []);
     },
     
-    // --- RESMİ TATİLLER ---
-    getResmiTatiller: function() {
-        let db = getDB();
-        if(!db.resmi_tatiller) {
-            db.resmi_tatiller = [];
-            saveDB(db);
-        }
-        return db.resmi_tatiller.sort((a,b) => a.gun_ay.localeCompare(b.gun_ay));
+    // --- RESMI TATILLER ---
+    getResmiTatiller: async function() {
+        const { data, error } = await supabaseClient.from('resmi_tatiller').select('*').order('gun_ay', { ascending: true });
+        return error ? [] : (data || []);
     },
-    addResmiTatil: function(gun_ay, aciklama) {
-        let db = getDB();
-        let newT = { id: generateId(db.resmi_tatiller), gun_ay: gun_ay, aciklama: aciklama };
-        db.resmi_tatiller.push(newT);
-        saveDB(db);
-        return newT;
+    addResmiTatil: async function(gun_ay, aciklama) {
+        const { data, error } = await supabaseClient.from('resmi_tatiller').insert([{ gun_ay, aciklama }]).select();
+        return error ? null : data[0];
     },
-    deleteResmiTatil: function(id) {
-        let db = getDB();
-        db.resmi_tatiller = db.resmi_tatiller.filter(t => t.id != id);
-        saveDB(db);
+    deleteResmiTatil: async function(id) {
+        const { error } = await supabaseClient.from('resmi_tatiller').delete().eq('id', id);
+        return !error;
     },
 
-    // --- OTURUM ---
-    isAdmin: function() {
-        return getDB().oturum.is_admin;
+    // --- OTURUM (AUTH) ---
+    isAdmin: async function() {
+        const { data } = await supabaseClient.auth.getSession();
+        return !!data.session;
     },
-    toggleAdmin: function(durum) {
-        let db = getDB();
-        db.oturum.is_admin = durum;
-        saveDB(db);
+    getKullaniciAdi: async function() {
+        const { data } = await supabaseClient.auth.getSession();
+        if (!data.session) return null;
+        const email = data.session.user?.email || '';
+        return email.split('@')[0] || 'Admin';
+    },
+    login: async function(email, password) {
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
+            email: email,
+            password: password
+        });
+        return { success: !error, error: error ? error.message : null };
+    },
+    logout: async function() {
+        await supabaseClient.auth.signOut();
+    },
+    toggleAdmin: async function(durum) {
+        if(!durum) {
+            await supabaseClient.auth.signOut();
+        }
     }
 };
-
-initDB();

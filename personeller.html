@@ -15,12 +15,13 @@
 </head>
 <body>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="assets/js/db.js"></script>
     <script src="assets/js/app.js"></script>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            if (!DB.isAdmin()) {
+        document.addEventListener('appReady', async function() {
+            if (!(await DB.isAdmin())) {
                 document.getElementById('main-content').innerHTML = '<div class="alert alert-danger">Bu sayfaya erişim yetkiniz yoktur.</div>';
                 return;
             }
@@ -69,6 +70,7 @@
                                         </tr>
                                     </thead>
                                     <tbody id="personeller-table-body">
+                                        <tr><td colspan="5"><div class="spinner-border text-primary my-3" role="status"></div></td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -227,14 +229,14 @@
             document.getElementById('main-content').insertAdjacentHTML('beforeend', html);
             document.getElementById('cikis_tarihi').value = new Date().toISOString().split('T')[0];
             
-            populateBirimSelects();
+            await populateBirimSelects();
             document.getElementById('filter_birim_id').value = secili_birim;
-            renderTable(secili_birim);
+            await renderTable(secili_birim);
 
             // Events
-            document.getElementById('formAddPersonel').addEventListener('submit', function(e) {
+            document.getElementById('formAddPersonel').addEventListener('submit', async function(e) {
                 e.preventDefault();
-                DB.addPersonel({
+                await DB.addPersonel({
                     ad_soyad: document.getElementById('ad_soyad').value,
                     birim_id: document.getElementById('birim_id').value,
                     izin_degistirici: document.getElementById('izin_degistirici').checked ? 1 : 0,
@@ -247,13 +249,13 @@
                 bootstrap.Modal.getInstance(document.getElementById('personelEkleModal')).hide();
                 document.getElementById('formAddPersonel').reset();
                 gosterMesaj("Personel başarıyla eklendi.", "success");
-                renderTable(document.getElementById('filter_birim_id').value);
+                await renderTable(document.getElementById('filter_birim_id').value);
             });
 
-            document.getElementById('formEditPersonel').addEventListener('submit', function(e) {
+            document.getElementById('formEditPersonel').addEventListener('submit', async function(e) {
                 e.preventDefault();
                 const id = document.getElementById('edit_personel_id').value;
-                DB.updatePersonel(id, {
+                await DB.updatePersonel(id, {
                     ad_soyad: document.getElementById('edit_ad_soyad').value,
                     birim_id: document.getElementById('edit_birim_id').value,
                     izin_degistirici: document.getElementById('edit_izin_degistirici').checked ? 1 : 0,
@@ -264,47 +266,41 @@
                 });
                 bootstrap.Modal.getInstance(document.getElementById('personelDuzenleModal')).hide();
                 gosterMesaj("Personel başarıyla güncellendi.", "success");
-                renderTable(document.getElementById('filter_birim_id').value);
+                await renderTable(document.getElementById('filter_birim_id').value);
             });
 
-            document.getElementById('formArchivePersonel').addEventListener('submit', function(e) {
+            document.getElementById('formArchivePersonel').addEventListener('submit', async function(e) {
                 e.preventDefault();
                 const id = document.getElementById('archive_personel_id').value;
                 const tarih = document.getElementById('cikis_tarihi').value;
-                DB.updatePersonel(id, { cikis_tarihi: tarih });
-                // Bu tarihten sonraki mesaileri temizle
-                let mesailer = DB.getDB().mesailer;
-                mesailer = mesailer.filter(m => !(m.personel_id == id && m.tarih > tarih));
-                let dbData = DB.getDB();
-                dbData.mesailer = mesailer;
-                saveDB(dbData);
+                await DB.updatePersonel(id, { cikis_tarihi: tarih });
 
                 bootstrap.Modal.getInstance(document.getElementById('personelSilModal')).hide();
                 gosterMesaj("Personel arşivlendi.", "success");
-                renderTable(document.getElementById('filter_birim_id').value);
+                await renderTable(document.getElementById('filter_birim_id').value);
             });
 
-            document.getElementById('formHardDeletePersonel').addEventListener('submit', function(e) {
+            document.getElementById('formHardDeletePersonel').addEventListener('submit', async function(e) {
                 e.preventDefault();
                 if (confirm('DİKKAT: Geçmişteki tüm mesai raporları bozulabilir. Kalıcı olarak silmek istediğinize emin misiniz?')) {
                     const id = document.getElementById('hard_delete_personel_id').value;
-                    DB.deletePersonel(id);
+                    await DB.deletePersonel(id);
                     bootstrap.Modal.getInstance(document.getElementById('personelSilModal')).hide();
                     gosterMesaj("Personel kalıcı olarak silindi.", "success");
-                    renderTable(document.getElementById('filter_birim_id').value);
+                    await renderTable(document.getElementById('filter_birim_id').value);
                 }
             });
         });
 
-        window.applyFilter = function() {
+        window.applyFilter = async function() {
             const birim_id = document.getElementById('filter_birim_id').value;
             const newUrl = window.location.pathname + (birim_id > 0 ? '?birim_id=' + birim_id : '');
             window.history.pushState({path:newUrl}, '', newUrl);
-            renderTable(birim_id);
+            await renderTable(birim_id);
         }
 
-        function populateBirimSelects() {
-            const birimler = DB.getBirimler();
+        async function populateBirimSelects() {
+            const birimler = await DB.getBirimler();
             let options = '';
             birimler.forEach(b => {
                 options += `<option value="${b.id}">${b.birim_adi}</option>`;
@@ -334,16 +330,16 @@
             bootstrap.Modal.getOrCreateInstance(document.getElementById('personelSilModal')).show();
         }
 
-        window.reactivatePersonel = function(id) {
+        window.reactivatePersonel = async function(id) {
             if(confirm('Bu personeli tekrar aktif hale getirmek istediğinize emin misiniz?')) {
-                DB.updatePersonel(id, { cikis_tarihi: null });
+                await DB.updatePersonel(id, { cikis_tarihi: null });
                 gosterMesaj("Personel tekrar aktif hale getirildi.", "success");
-                renderTable(document.getElementById('filter_birim_id').value);
+                await renderTable(document.getElementById('filter_birim_id').value);
             }
         }
 
-        function renderTable(secili_birim = 0) {
-            let personeller = DB.getPersoneller();
+        async function renderTable(secili_birim = 0) {
+            let personeller = await DB.getPersoneller();
             if (secili_birim > 0) {
                 personeller = personeller.filter(p => p.birim_id == secili_birim);
             }
@@ -356,13 +352,14 @@
 
             const tbody = document.getElementById('personeller-table-body');
             if (personeller.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="text-muted py-4">Kayıtlı personel bulunamadı.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="text-muted py-4">Kayıtlı personel bulunamadı.</td></tr>';
                 return;
             }
 
             let html = '';
-            personeller.forEach((p, index) => {
-                let birim = DB.getBirim(p.birim_id);
+            for (let i = 0; i < personeller.length; i++) {
+                const p = personeller[i];
+                let birim = await DB.getBirim(p.birim_id);
                 let birimAdi = birim ? birim.birim_adi : 'Atanmadı';
                 
                 let adSoyadHtml = p.cikis_tarihi ? `<del class="text-muted">${p.ad_soyad}</del> <span class="badge bg-danger ms-2">Pasif (${new Date(p.cikis_tarihi).toLocaleDateString('tr-TR')})</span>` : p.ad_soyad;
@@ -402,12 +399,13 @@
 
                 html += `
                 <tr>
-                    <td>${index + 1}</td>
+                    <td>${i + 1}</td>
                     <td class="text-start fw-bold"><i class="fa-regular fa-user text-muted me-2"></i> ${adSoyadHtml} ${infoHtml}</td>
                     <td><span class="badge bg-info text-dark rounded-pill"><i class="fa-solid fa-building me-1"></i> ${birimAdi}</span></td>
+                    <td><small class="text-muted">${p.olusturulma_tarihi ? new Date(p.olusturulma_tarihi).toLocaleDateString('tr-TR') : '-'}</small></td>
                     <td>${actionsHtml}</td>
                 </tr>`;
-            });
+            }
             tbody.innerHTML = html;
         }
 
