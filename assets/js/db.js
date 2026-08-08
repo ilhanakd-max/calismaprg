@@ -19,7 +19,7 @@ function initDB() {
                 { id: 1, gun_ay: '01-01', aciklama: 'Yılbaşı' },
                 { id: 2, gun_ay: '04-23', aciklama: 'Ulusal Egemenlik ve Çocuk Bayramı' },
                 { id: 3, gun_ay: '05-01', aciklama: 'Emek ve Dayanışma Günü' },
-                { id: 4, gun_ay: '05-19', aciklama: 'Atatürk\\'ü Anma, Gençlik ve Spor Bayramı' },
+                { id: 4, gun_ay: '05-19', aciklama: "Atatürk'ü Anma, Gençlik ve Spor Bayramı" },
                 { id: 5, gun_ay: '07-15', aciklama: 'Demokrasi ve Milli Birlik Günü' },
                 { id: 6, gun_ay: '08-30', aciklama: 'Zafer Bayramı' },
                 { id: 7, gun_ay: '10-29', aciklama: 'Cumhuriyet Bayramı' }
@@ -264,6 +264,11 @@ const DB = {
     // --- OTURUM ---
     isAdmin: function() {
         return getDB().oturum.is_admin;
+    },
+    toggleAdmin: function(durum) {
+        let db = getDB();
+        db.oturum.is_admin = durum;
+        saveDB(db);
     }
 };
 
